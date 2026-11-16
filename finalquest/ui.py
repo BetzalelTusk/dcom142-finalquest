@@ -231,23 +231,70 @@ def end_script():
     _SCRIPT = None
 
 
-NAMED = {"enter", "esc", "up", "down", "left", "right", "backspace", "tab", "home", "end", "del", "ctrl-c", "ctrl-d", "<idle>"}
+NAMED = {"enter", "esc", "up", "down", "left", "right", "backspace", "tab", "home", "end", "del", "ctrl-c", "ctrl-d", "<idle>", "<paste>", "</paste>"}
 
 
 class ScriptExhausted(Exception):
     pass
 
 
+PASTED = False          # True when the key just read arrived as part of a paste (faster than anyone can type)
+_SCRIPT_PASTE = False   # tests mark pasted keys with '<paste>' ... '</paste>'
+
+
+def pending():
+    """True if more input is already waiting (we're in the middle of a paste)."""
+    if _SCRIPT is not None:
+        return _SCRIPT_PASTE and bool(_SCRIPT) and _SCRIPT[0] != "</paste>"
+    if not sys.stdin.isatty():
+        return False
+    if os.name == "nt":
+        import msvcrt
+        return msvcrt.kbhit()
+    import select
+    return bool(select.select([sys.stdin.fileno()], [], [], 0)[0])
+
+
+def flush_input():
+    """Throw away whatever is left of a paste."""
+    global _SCRIPT_PASTE
+    if _SCRIPT is not None:
+        while _SCRIPT and _SCRIPT_PASTE:
+            if _SCRIPT.pop(0) == "</paste>":
+                _SCRIPT_PASTE = False
+        return
+    if not sys.stdin.isatty():
+        return
+    if os.name == "nt":
+        import msvcrt
+        while msvcrt.kbhit():
+            msvcrt.getwch()
+        return
+    import termios
+    termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+
+
 def readkey(timeout=None):
     """Return the next key name. With a timeout, returns None if no key arrived in time.
-    Test scripts can queue '<idle>' to simulate a timeout."""
+    Sets PASTED when the key came in as part of a paste. Test scripts can queue '<idle>' to simulate
+    a timeout and wrap keys in '<paste>' / '</paste>' to simulate pasting."""
+    global PASTED, _SCRIPT_PASTE
     if _SCRIPT is not None:
-        if not _SCRIPT:
-            raise ScriptExhausted()
-        k = _SCRIPT.pop(0)
+        while True:
+            if not _SCRIPT:
+                raise ScriptExhausted()
+            k = _SCRIPT.pop(0)
+            if k == "<paste>":
+                _SCRIPT_PASTE = True
+            elif k == "</paste>":
+                _SCRIPT_PASTE = False
+            else:
+                break
+        PASTED = _SCRIPT_PASTE
         if k == "<idle>":
             return None if timeout is not None else readkey()
         return k
+    PASTED = False
     if not sys.stdin.isatty():
         line = sys.stdin.readline()
         if line == "":
@@ -255,6 +302,7 @@ def readkey(timeout=None):
         return "enter" if line.strip() == "" else line.rstrip("\n")
     if os.name == "nt":
         import msvcrt
+        waiting = msvcrt.kbhit()
         if timeout is not None:
             end = time.time() + timeout
             while not msvcrt.kbhit():
@@ -263,8 +311,12 @@ def readkey(timeout=None):
                 time.sleep(0.03)
         ch = msvcrt.getwch()
         if ch in ("\x00", "\xe0"):
-            return {"H": "up", "P": "down", "K": "left", "M": "right", "G": "home", "O": "end", "S": "del"}.get(msvcrt.getwch(), "?")
-        return _norm(ch)
+            key = {"H": "up", "P": "down", "K": "left", "M": "right", "G": "home", "O": "end", "S": "del"}.get(msvcrt.getwch(), "?")
+        else:
+            key = _norm(ch)
+        # a key that was already queued, or that has more keys queued right behind it, came from a paste
+        PASTED = waiting or msvcrt.kbhit()
+        return key
     import select
     import termios
     import tty
@@ -272,6 +324,7 @@ def readkey(timeout=None):
     old = termios.tcgetattr(fd)
     try:
         tty.setraw(fd)
+        waiting = bool(select.select([fd], [], [], 0)[0])
         if timeout is not None and not select.select([fd], [], [], timeout)[0]:
             return None
         ch = os.read(fd, 1).decode("utf-8", "ignore")
@@ -280,8 +333,10 @@ def readkey(timeout=None):
                 rest = os.read(fd, 8).decode("utf-8", "ignore")
                 m = {"[A": "up", "[B": "down", "[C": "right", "[D": "left", "[H": "home", "[F": "end",
                      "[3~": "del", "OH": "home", "OF": "end", "[1~": "home", "[4~": "end"}
+                PASTED = waiting or bool(select.select([fd], [], [], 0)[0])
                 return m.get(rest, "?")
             return "esc"
+        PASTED = waiting or bool(select.select([fd], [], [], 0)[0])
         return _norm(ch)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -339,6 +394,13 @@ def read_line(prompt, history=None, complete=None, default="", timeout=None, tic
                 draw()
             continue
         if k == "enter":
+            if PASTED and pending():
+                # a pasted line break with more text behind it: keep the first line, drop the rest,
+                # and let the player press Enter themselves (a paste never submits several answers)
+                flush_input()
+                write("\n" + c("  (pasted several lines: kept only the first one. Press Enter when ready.)", "gray") + "\n")
+                draw()
+                continue
             write("\n")
             return "".join(buf)
         if k == "esc":
@@ -418,6 +480,9 @@ def press_enter(msg="  press Enter to continue "):
     try:
         while True:
             k = readkey()
+            if PASTED:
+                flush_input()
+                continue
             if k in ("enter", "esc", " ", "q"):
                 break
     finally:
@@ -493,6 +558,12 @@ def menu(options, title=None, subtitle=None, start=0, back=True, footer=None, wi
             if k is None:
                 step += 1
                 continue
+            if PASTED and k not in ("up", "down", "home", "end"):
+                # pasted text must never pick an option (Enter / digits) or fire a hotkey; arrows held down still work
+                flush_input()
+                footer_note = c("   (paste ignored in menus: use ↑↓ and Enter)", "byellow")
+                write("\r" + footer_note + ESC + "[K\r")   # shown on the line under the menu; the cursor stays put
+                continue
             pos = selectable.index(idx)
             if k in HOTKEYS:
                 show_cursor()
@@ -529,6 +600,9 @@ def confirm(question, default=True):
     write(c(question, "bold") + c(" [Y/n] " if default else " [y/N] ", "gray"))
     while True:
         k = readkey()
+        if PASTED:
+            flush_input()
+            continue
         if k == "enter":
             write("\n")
             return default

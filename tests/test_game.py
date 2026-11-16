@@ -139,5 +139,28 @@ m = [x for x in M.MISSIONS if x["id"] == "dependency-hell"][0]
 r, o, e = drive(game.play_mission, *lines_for(["sudo rpm -ivh Downloads/httpd-2.4.57-5.el9.x86_64.rpm", "exit"]), m=m)
 expect("simulator teaching notes stay hidden when tips are OFF", "Failed dependencies" in o and "low-level tool" not in o, o)
 
+
+# 12. Ctrl+V pastes the clipboard as fast keystrokes. A paste must never submit answers, pick menu options or reveal answers.
+def as_keys(text):
+    return [("enter" if ch == "\n" else ch) for ch in text]
+
+qs = [q for q in game.RECALL if not q["loose"]][:3]
+clip = "mkdir -p projects/logs\n\ntouch projects/a.txt\n\nmore 1 2 j k m q\n"
+pasted = ["<paste>"] + as_keys(clip) + ["</paste>"]
+r, o, e = drive(game.ask_recall, *(pasted + ["enter"]), q=qs[0])
+expect("paste at a question: first line kept, only the player's own Enter submits it, nothing cascades",
+       r in ("wrong", "right", "retry-right") or e == "script exhausted", o)
+expect("paste at a question: no answer revealed by the paste", "kept only the first one" in o and "skipped" not in o and "Answer:" not in o, o)
+q = game.MC[0]
+r, o, e = drive(game.ask_mc, *(pasted + ["esc"]), q=q)
+expect("paste in a multiple-choice menu picks nothing", r[0] == "quit" and "paste ignored" in o and "MENU MAP" not in o, o)
+r, o, e = drive(game.run_exam, "<paste>", "c", "d", " ", "enter", "</paste>", "esc", "n", qs=game.MC[:2])
+expect("paste during the exam records no answer", "EXAM RESULTS" not in o, o)
+r, o, e = drive(game.ask_mc, "<paste>", "down", "down", "</paste>", "enter", q=q)
+expect("held-down arrows (fast repeats) still move in menus", r[0] in ("right", "wrong"), o)
+m = M.MISSIONS[0]
+r, o, e = drive(game.play_mission, *(["<paste>"] + as_keys("mkdir -p projects/logs\ntouch projects/zzz\n") + ["</paste>", "enter"] + lines_for(["ls projects", "exit"])), m=m)
+expect("paste in a mission runs only the first line, after your own Enter", "kept only the first one" in o and "logs" in o and "zzz" not in o.split("kept only")[1], o)
+
 print("failures:", fails)
 sys.exit(1 if fails else 0)
