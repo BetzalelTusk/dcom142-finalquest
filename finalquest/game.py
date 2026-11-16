@@ -373,24 +373,90 @@ def rank_up(name):
 
 
 # ============================================================================= missions
-SHELL_HELP = [c("Type real Linux commands at the prompt below. Goals tick off on their own. ", "white") + c("Tab", "bold") + " completes, " + c("↑", "bold") + " recalls.",
-              c("!goal", "byellow") + " goals  " + c("!tip", "byellow") + " a tip  " + c("!cheat", "byellow") + " commands  " + c("!stats", "byellow") + "  "
-              + c("!menuTree", "byellow") + " map  " + c("!reset", "byellow") + "  " + c("!solution", "byellow") + "  " + c("exit", "byellow") + " leave"]
+import re as _re
+
+# words worth spotting at a glance in briefings and objectives: paths, file names, commands, quoted text
+_HL = _re.compile(
+    r"(~?/[\w.\-/]+|~(?=\s|$|\))"
+    r"|\b[\w\-]+\.(?:txt|tar|gz|bz2|xz|csv|rpm|repo|img|md5|sha256|log|conf|zip|7z|cpio|html|key)\b"
+    r"|\b(?:sudo|tar|gzip|bzip2|xz|grep|find|ln|dd|ddrescue|rpm|yum|dnf|apt|dpkg|wget|curl|createrepo|tee|xargs|md5sum|"
+    r"sha256sum|sha1sum|wc|tr|cut|sort|mkfs|mount|lvextend|lvcreate|vgcreate|pvcreate|fstab|httpd|zip|nmap|tree|localtool|XFS|ext4|LVM)\b"
+    r"|'[^']+'|\"[^\"]+\"|\b\d+G\b)")
+
+
+def accent():
+    return ui.grad(1)
+
+
+def label_col():
+    return ui.grad(7)
+
+
+def cmd_col():
+    return ui.grad(6)
+
+
+def hl(text, base=None):
+    """Highlight the important words in a sentence (bold, accent colour). base = colour for the rest."""
+    parts = []
+    last = 0
+    for mt in _HL.finditer(text):
+        if mt.start() > last:
+            seg = text[last:mt.start()]
+            parts.append(c(seg, *base) if base else seg)
+        parts.append(c(mt.group(0), "bold", fg=accent()))
+        last = mt.end()
+    seg = text[last:]
+    parts.append(c(seg, *base) if base else seg)
+    return "".join(parts)
+
+
+def chip(word):
+    return c(word, "bold", fg=cmd_col())
+
+
+def shell_help_lines():
+    sep = c("  ·  ", "gray")
+    return [c("Type Linux commands at the prompt", "white") + sep + c("Tab", "bold") + c(" completes", "gray") + sep + c("↑", "bold") + c(" recalls", "gray"),
+            sep.join([chip("!goal"), chip("!tip"), chip("!cheat"), chip("!stats"), chip("!menuTree"), chip("!reset"), chip("!solution"), chip("exit")])]
+
+
+SHELL_HELP = shell_help_lines()
 
 
 def mission_screen(m, fs, sh, status, where=None):
-    lines = [c(m["brief"], "white"), ""]
-    for i, g in enumerate(m["goals"]):
-        if g.startswith("("):
-            lines.append("   " + c(g, "gray", "ital"))
-            continue
-        done = status[i]
-        mark = (c("✔", "bgreen", "bold") if done else c("☐", "gray")) if not ui.PLAIN else ("[x]" if done else "[ ]")
-        lines.append(" %s %s" % (mark, c(g, "green") if done else g))
+    goals = [(i, g) for i, g in enumerate(m["goals"]) if not g.startswith("(")]
+    notes = [g for g in m["goals"] if g.startswith("(")]
+    done = sum(1 for i, _ in goals if status[i])
+    width = min(ui.term_width(), 92)
+    inner = width - 4
+    lab = lambda s: c(s, "bold", fg=label_col())
+    lines = ["", lab("BRIEFING"), hl(m["brief"]), "",
+             lab("OBJECTIVES") + "   " + (c("%d/%d done" % (done, len(goals)), "bgreen", "bold") if done == len(goals)
+                                         else c("%d/%d done" % (done, len(goals)), "gray"))]
+    for n, (i, g) in enumerate(goals, 1):
+        if status[i]:
+            mark = c("✔" if not ui.PLAIN else "[x]", "bgreen", "bold")
+            text = c(g, "green")
+        else:
+            mark = c("○" if not ui.PLAIN else "[ ]", fg=accent())
+            text = hl(g)
+        lines.append(" %s %s  %s" % (c("%d" % n, "bold", fg=label_col()), mark, text))
+    for g in notes:
+        lines.append("      " + c(g.strip("()"), "gray", "ital"))
     lines.append("")
-    lines.extend(SHELL_HELP)
+    lines.append(c(("─" if not ui.PLAIN else "-") * inner, fg=ui.grad(5)))
+    lines.extend(shell_help_lines())
     dist = "Rocky Linux 9" if m["distro"] == "rocky" else "Debian 12"
-    out(box(lines, "MISSION · Level %s · %s · %s" % (m["level"], m["title"], dist), color="green"))
+    lvl_ms = [x for x in M.MISSIONS if x["level"] == m["level"]]
+    num = "%d.%d" % (m["level"], lvl_ms.index(m) + 1)
+    title = c("MISSION " + num, "bold", fg=label_col()) + "  " + c(m["title"].upper(), "bold", "white")
+    right = c(dist, "gray")
+    out(ui.gbox(lines, title, right, width=width, hang=lambda ln: 6 if _re.match(r"^ \S+ \S+  ", ANSI_RE_STRIP(ln)) else None))
+
+
+def ANSI_RE_STRIP(s):
+    return ui.ANSI_RE.sub("", s)
 
 
 def stars_for(cmds, par, hints, peeked):
@@ -582,7 +648,7 @@ def play_mission(m):
             if b and not a and i in goals_idx:
                 st["last"] = time.time()
                 done = sum(1 for k in goals_idx if new[k])
-                out(c("  ✔ goal %d/%d: " % (done, len(goals_idx)) if not ui.PLAIN else "  [x] goal %d/%d: " % (done, len(goals_idx)), "bgreen", "bold") + c(m["goals"][i], "green"))
+                out(c("  ✔ objective %d/%d  " % (done, len(goals_idx)) if not ui.PLAIN else "  [x] objective %d/%d  " % (done, len(goals_idx)), "bgreen", "bold") + hl(m["goals"][i]))
         status = new
         if all(status):
             mission_won(m, st["typed"], st["hints"], st["peeked"])
@@ -599,9 +665,14 @@ def mission_won(m, typed, hints, peeked):
     lvl = s.add_xp(xp)
     star_s = ("★" * stars + "☆" * (3 - stars)) if not ui.PLAIN else ("*" * stars + "." * (3 - stars))
     out("")
-    out(box([c("MISSION COMPLETE", "bgreen", "bold") + "   " + c(star_s, "byellow", "bold"),
-             "commands typed: %d   (par %d)   tips used: %d%s" % (typed, m["par"], hints, "   solution viewed" if peeked else ""),
-             "+%d XP" % xp, c("3 stars = no solution peek, no tips, within par+2 commands.", "gray")], m["title"], color="green"))
+    lab = lambda t: c(t, "bold", fg=label_col())
+    out(ui.gbox(["", c("MISSION COMPLETE", "bgreen", "bold") + "     " + c(star_s, "byellow", "bold"), "",
+                 lab("commands") + "  %s  %s" % (c(str(typed), "bold", "white"), c("(par %d)" % m["par"], "gray"))
+                 + "     " + lab("tips") + "  " + c(str(hints), "bold", "white")
+                 + ("     " + c("solution viewed", "byellow") if peeked else "")
+                 + "     " + c("+%d XP" % xp, "bold", fg=accent()),
+                 "", c("3 stars = no solution peek, no tips, within par+2 commands", "gray")],
+                c("✔ " if not ui.PLAIN else "", "bgreen", "bold") + c(m["title"].upper(), "bold", "white")))
     if lvl:
         rank_up(lvl)
     s.badge("first-mission")

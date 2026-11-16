@@ -120,10 +120,9 @@ BOX = {"tl": "╭", "tr": "╮", "bl": "╰", "br": "╯", "h": "─", "v": "│
 BOX_PLAIN = {"tl": "+", "tr": "+", "bl": "+", "br": "+", "h": "-", "v": "|"}
 
 
-def box(lines, title="", width=None, color="cyan", fg=None):
-    b = BOX_PLAIN if PLAIN else BOX
-    width = width or min(term_width(), 92)
-    inner = width - 4
+def _wrap_body(lines, inner, hang_extra=None):
+    """Wrap box lines to the inner width. Continuation lines hang under the text, not under a leading mark.
+    hang_extra(line) may return a custom hang width for a line."""
     body = []
     for ln in lines:
         if vlen(ln) <= inner:
@@ -131,10 +130,42 @@ def box(lines, title="", width=None, color="cyan", fg=None):
             continue
         lead = len(ln) - len(ln.lstrip(" "))
         plain = ANSI_RE.sub("", ln).lstrip(" ")
-        hang = lead + (2 if plain[:1] in "☐✔[•-*" else 0)
+        hang = hang_extra(ln) if hang_extra else None
+        if hang is None:
+            hang = lead + (2 if plain[:1] in "☐✔[•-*" else 0)
         parts = wrap(ln[lead:], inner - hang)
         body.append(" " * lead + parts[0])
         body.extend(" " * hang + x for x in parts[1:])
+    return body
+
+
+def gbox(lines, title="", right="", width=None, colors=None, hang=None):
+    """A box whose border fades through a colour gradient top to bottom (the title screen's blue -> purple).
+    title / right may contain their own colours; they sit in the top border."""
+    b = BOX_PLAIN if PLAIN else BOX
+    width = width or min(term_width(), 92)
+    inner = width - 4
+    colors = colors or THEME["grad"][2:]
+    body = _wrap_body(lines, inner, hang)
+    rows = len(body) + 2
+
+    def col(i):
+        return colors[min(len(colors) - 1, int(round(i * (len(colors) - 1) / float(max(1, rows - 1)))))]
+    t = " %s " % title if title else ""
+    r = " %s " % right if right else ""
+    fill = max(0, width - 4 - vlen(t) - vlen(r))
+    out_ = [c(b["tl"] + b["h"], fg=col(0)) + t + c(b["h"] * fill, fg=col(0)) + r + c(b["h"] + b["tr"], fg=col(0))]
+    for i, ln in enumerate(body, 1):
+        out_.append(c(b["v"], fg=col(i)) + " " + pad(ln, inner) + " " + c(b["v"], fg=col(i)))
+    out_.append(c(b["bl"] + b["h"] * (width - 2) + b["br"], fg=col(rows - 1)))
+    return "\n".join(out_)
+
+
+def box(lines, title="", width=None, color="cyan", fg=None):
+    b = BOX_PLAIN if PLAIN else BOX
+    width = width or min(term_width(), 92)
+    inner = width - 4
+    body = _wrap_body(lines, inner)
     top = b["tl"] + b["h"] * (width - 2) + b["tr"]
     if title:
         t = " %s " % title
