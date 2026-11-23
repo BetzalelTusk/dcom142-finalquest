@@ -90,8 +90,8 @@ Every screen shows where you are as a shell path (`rocky@rocky01:~/campaign/leve
 ```
 ~  main menu
 ├── ▶ continue          jumps to your next unfinished thing
-├── campaign/           7 levels: missions · boss · drill · cheat sheet
-│   ├── level-1 … level-7
+├── campaign/           8 levels: missions · boss · drill · cheat sheet
+│   ├── level-1 … level-8
 │   └── (level-3 also has vim-dojo/)
 ├── practice/           drills · lightning · weak-spots · cheat-sheets
 ├── final-exam/         quick 25 · full 50 · everything · practice
@@ -101,7 +101,7 @@ Every screen shows where you are as a shell path (`rocky@rocky01:~/campaign/leve
 
 Nothing is more than three levels deep, and nothing appears in two places. A **💡 did you know?** line under the title cycles through 14 features every few seconds (→ skips ahead).
 
-**Sandbox missions** (20) run on a simulated Rocky Linux 9 / Debian 12 box. You're graded on the machine's **final state** (files, inodes, packages, mounts), not on matching one exact command. Goals tick off on their own. Real shell behaviour works: `sudo`, `sudo !!`, pipes, `> >> 2> &> <`, `; && ||`, globs, Tab completion, ↑ history, `man`, permission errors, and the classic `sudo echo x > /etc/file` trap.
+**Sandbox missions** (28) run on a simulated Rocky Linux 9 / Debian 12 box. You're graded on the machine's **final state** (files, inodes, packages, mounts), not on matching one exact command. Goals tick off on their own. Real shell behaviour works: `sudo`, `sudo !!`, pipes, `> >> 2> &> <`, `; && ||`, globs, Tab completion, ↑ history, `man`, permission errors, and the classic `sudo echo x > /etc/file` trap. Storage behaves like the real thing too: **interactive `fdisk`** (`m n p d t w q`) and **`parted`**, the "device busy, run partprobe" message, a mount that **hides** what was in the directory, a mount point owned by root until you `chown` it, swap files made with `dd`, and a `reboot` that drops into **emergency mode** when `/etc/fstab` is wrong.
 
 | Mission command | Does |
 |---|---|
@@ -115,7 +115,7 @@ Nothing is more than three levels deep, and nothing appears in two places. A **�
 
 **Tips are off by default and then never appear.** Turn them on in Profile or with `!tips on`. Then `!tip` asks for one, and a tip appears by itself after 2 minutes without reaching the next goal.
 
-**Vim Dojo** (9 puzzles): type real keystrokes (`ggO# managed<Esc>:wq`) and a mini vim runs them. **Command drills** (174) give word-by-word feedback on what you typed. **Themes:** Rocky, Matrix and Amber CRT (Profile → Theme).
+**Vim Dojo** (9 puzzles): type real keystrokes (`ggO# managed<Esc>:wq`) and a mini vim runs them. **Command drills** (211) give word-by-word feedback on what you typed. **Themes:** Rocky, Matrix and Amber CRT (Profile → Theme).
 
 ## Coverage
 
@@ -127,11 +127,12 @@ Nothing is more than three levels deep, and nothing appears in two places. A **�
 | 4 Backup Bunker | Module 9 | 5.2 | `tar` (-cxtvrfzj), `cpio`, gzip/bzip2/xz/zip/7z, hashing, `md5sum -c`, `sha*sum`, HMAC, `dd`, `ddrescue` | Backup Bunker, Restore Point, Tamper Alert, Compression Contest, Disk Doctor |
 | 5 Package Depot | Module 10 | 6.1 | rpm vs yum/dnf, dpkg vs apt, dependencies, queries, pip/npm/cargo | Dependency Hell, Inventory Day, Debian Duty |
 | 6 Repo Rebellion | Module 10 | 6.2 | `wget`/`curl`, repo types, `.repo` files, `createrepo`, `gpgcheck`, `apt update`, Snap/Flatpak/AppImage | Download Day, Repo Rebellion |
-| 7 Storage Vault | Modules 11-12 | 7.1-7.4 | partitions, mkfs, mount, fstab, LVM, RAID, swap | New Disk Day, LVM Builder |
+| 7 Storage Vault | Module 11 | 7.1-7.2 | HDD/SSD, file/block/object storage, MBR vs GPT, primary/extended/logical, `/dev/sdXN`, `hwinfo lsblk lsscsi blkid`, `fdisk`, `parted`, `partprobe`, `growpart`, ext4/XFS/Btrfs/tmpfs, `xfs_*` and ext tools, `fsck`, swap, LVM | Disk Detective, fdisk Drill, New Disk Day, Filesystem Fixer, Swap Shop, LVM Builder |
+| 8 Mount Mountain | Module 12 | 7.3-7.4 | mounting, `/etc/fstab`, UUIDs, `mount -a`, reboot and emergency mode, `df`/`du`, RAID (`mdadm`, `/proc/mdstat`), disk quotas | Mount Point Mystery, Boot Breaker, Quota Cop, RAID Rescue |
 
-Sources are the instructor's Fall 2026 slide decks for Modules 6-10 and their Learning Objectives pages. Each question shows the slide it comes from. The repo contains no course files.
+Sources are the instructor's Fall 2026 slide decks for Modules 6-11 and their Learning Objectives pages. Each question shows the slide it comes from. The repo contains no course files.
 
-**Level 7 is a PREVIEW.** The Module 11-12 slides weren't posted when this was built, so the storage material follows standard CompTIA Linux+ XK0-006 content and every item is marked `PREVIEW`. Check it against the slides when they go up.
+**Level 8 is partly a PREVIEW.** The Module 12 deck (7.3-7.4) wasn't posted when this was built. Mounting, `/etc/fstab`, RAID and quota points that are on the Module 11 deck cite it; everything else follows standard CompTIA Linux+ XK0-006 content and is marked `PREVIEW` (17 items). The exam simulator can leave those out.
 
 ## Tests
 
@@ -142,7 +143,7 @@ python tests/run_all.py
 - Every reference solution completes its mission, and no mission starts out already complete.
 - Every vim puzzle accepts the right keystrokes and rejects the common wrong ones.
 - Every accepted answer passes the answer checker.
-- The real UI is driven end to end with scripted keystrokes: all 20 missions, the boss win and loss, exam grading, and every menu.
+- The real UI is driven end to end with scripted keystrokes: all 28 missions (plus interactive `fdisk` and `parted` sessions typed key by key), the boss win and loss, exam grading, and every menu.
 
 ## Academic integrity
 

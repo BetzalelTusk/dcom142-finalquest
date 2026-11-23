@@ -13,8 +13,15 @@ TOPICS = {
     "integrity": ("Module 9",  "hashes, HMAC, dd, ddrescue"),
     "packages":  ("Module 10", "rpm, yum, dnf, dpkg, apt, dependencies"),
     "repos":     ("Module 10", "wget/curl, repositories, sandboxed software"),
-    "storage":   ("Modules 11-12 (PREVIEW)", "partitions, filesystems, LVM, mounting, fstab, RAID, swap"),
+    "storage":   ("Module 11", "disks, fdisk/parted, partitions, filesystems, swap, LVM"),
+    "mounts":    ("Module 12", "mount, fstab, reboot, df/du, RAID, quotas"),
 }
+
+PV = "PREVIEW (slides not posted yet): "
+
+
+def is_preview(q):
+    return q["src"].startswith("PREVIEW")
 
 
 def R(topic, prompt, answers, explain, src, hint="", loose=False):

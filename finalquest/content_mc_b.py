@@ -1,4 +1,4 @@
-"""Multiple-choice bank, part B: Modules 9-10 (plus a PREVIEW of Modules 11-12 storage)."""
+"""Multiple-choice bank, part B: Modules 9-10 (storage is in content_storage.py)."""
 from .content_base import M
 
 PV = "PREVIEW (slides not posted yet): "
@@ -252,53 +252,3 @@ M("repos", "Which sandboxed package format can run applications WITHOUT root or 
   "AppImage", ["Docker", "RPM", "Virtual machine"],
   "AppImage is portable and can run without installation, but it has limited sandboxing compared to Snaps and Flatpak.",
   "Module 10 slides (Sandboxed Software)")
-
-# ---------------------------------------------------------------- storage (12, PREVIEW)
-M("storage", "Which partitioning scheme supports disks larger than 2 TB and many more than four partitions?",
-  "GPT", ["MBR", "FAT32", "LVM"],
-  "MBR is limited to about 2 TB and four primary partitions. GPT removes those limits.",
-  PV + "CompTIA Linux+ Module 7 (Deploy Standard Storage)")
-M("storage", "What is the device name of the SECOND partition on the first SATA/SCSI disk?",
-  "/dev/sda2", ["/dev/sdb1", "/dev/sd2a", "/dev/hda2"],
-  "Disks are /dev/sda, /dev/sdb and so on. Partitions add a number: sda1, sda2.",
-  PV + "CompTIA Linux+ Module 7 (Deploy Standard Storage)")
-M("storage", "Which tool is commonly used to create and edit partitions on a disk?",
-  "fdisk", ["mkfs", "mount", "lvextend"],
-  "fdisk (also gdisk and parted) manages partitions. mkfs creates the file system afterwards.",
-  PV + "CompTIA Linux+ Module 7 (Deploy Standard Storage)")
-M("storage", "After creating a new partition /dev/sdb1, what must happen before you can store files on it?",
-  "Create a file system on it, such as with mkfs.ext4", ["Run lvextend on it", "Add it to /etc/passwd", "Compress it with gzip"],
-  "A partition is raw space. mkfs (for example mkfs.ext4 or mkfs.xfs) creates the file system, then you mount it.",
-  PV + "CompTIA Linux+ Module 7 (Deploy Standard Storage)")
-M("storage", "In LVM, what is the correct order to build a logical volume?",
-  "Physical volume, volume group, logical volume", ["Logical volume, volume group, physical volume", "Volume group, physical volume, logical volume", "Physical volume, logical volume, volume group"],
-  "pvcreate makes physical volumes, vgcreate pools them into a volume group and lvcreate carves logical volumes from the group.",
-  PV + "CompTIA Linux+ Module 7 (Logical Volume Management)")
-M("storage", "Which command creates a 5 GB logical volume called data in the volume group vg0?",
-  "lvcreate -L 5G -n data vg0", ["vgcreate -L 5G -n data vg0", "pvcreate -L 5G data vg0", "lvextend -L 5G data vg0"],
-  "lvcreate -L sets the size and -n the name, followed by the volume group.",
-  PV + "CompTIA Linux+ Module 7 (Logical Volume Management)")
-M("storage", "An ext4 logical volume is full. After running lvextend, which command makes the file system use the new space?",
-  "resize2fs", ["xfs_growfs", "mkfs.ext4", "fsck -a"],
-  "lvextend grows the volume but not the file system. Use resize2fs for ext4 and xfs_growfs for XFS.",
-  PV + "CompTIA Linux+ Module 7 (Logical Volume Management)")
-M("storage", "How many fields are on each line of /etc/fstab?",
-  "Six", ["Four", "Five", "Seven"],
-  "The fields are device, mount point, file system type, options, dump and fsck pass order.",
-  PV + "CompTIA Linux+ Module 7 (Mount Storage)")
-M("storage", "Why is it often better to use a UUID instead of /dev/sdb1 in /etc/fstab?",
-  "Device names can change between boots, but the UUID stays the same", ["A UUID makes the disk faster", "A UUID encrypts the partition", "/dev names cannot be used in fstab"],
-  "Disk order can change when devices are added, so /dev/sdX names are not stable. blkid shows each UUID.",
-  PV + "CompTIA Linux+ Module 7 (Mount Storage)")
-M("storage", "What is the difference between df and du?",
-  "df reports free space per file system; du reports space used by files and directories", ["df lists devices; du lists users", "df repairs file systems; du unmounts them", "They are identical"],
-  "df -h shows file-system capacity and free space. du -sh shows how much space a directory uses.",
-  PV + "CompTIA Linux+ Module 7 (Mount Storage)")
-M("storage", "Which RAID level mirrors data across two disks so one can fail without data loss?",
-  "RAID 1", ["RAID 0", "RAID 5 with one disk", "RAID 6 with no parity"],
-  "RAID 0 stripes with no redundancy, RAID 1 mirrors, RAID 5 uses single parity and RAID 6 uses double parity. RAID 10 combines mirroring and striping.",
-  PV + "CompTIA Linux+ Module 7 (Manage Other Storage Options)")
-M("storage", "Which statement about swap space is TRUE?",
-  "It is disk space the kernel uses as extra memory when RAM is full", ["It stores the user's home directory", "It is created with createrepo", "It must be a mounted ext4 volume"],
-  "Create it with mkswap and enable it with swapon. Swap can be a partition or a file.",
-  PV + "CompTIA Linux+ Module 7 (Manage Other Storage Options)")

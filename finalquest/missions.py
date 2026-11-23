@@ -103,8 +103,33 @@ mission(id="link-lab", level=1, title="Link Lab",
                               node(fs, H + "/dir1/file3-sl", False) is not None and node(fs, H + "/dir1/file3-sl", False).kind == "l" and node(fs, H + "/dir1/file3-sl", False).target.endswith("file3"),
                               node(fs, H + "/dir1/file2", False) is None and node(fs, H + "/dir1/file3", False) is None,
                               True],
+        warn=lambda fs, sh: _links_warn(fs),
+        dead=lambda fs, sh: _links_dead(fs),
         hints=["ln with no flag makes a hard link: ln SOURCE LINKNAME", "ln -s makes a symbolic link.", "ls -li shows inode numbers: a hard link shares the inode."],
         solution=["cd dir1", "ln file2 file2-hl", "ln -s file3 file3-sl", "ls -li", "rm file2 file3", "cat file2-hl"], par=4)
+
+
+def _links_dead(fs):
+    """The original file2 is gone and nothing links to it: goal 1 can never be met."""
+    if fs.sys.get("m_ino") in fs.inodes:
+        return None
+    return ("The ORIGINAL file2 (with the payroll data) has been deleted while nothing was hard-linked to it, so its data is gone "
+            "and goal 1 (a hard link to that file) can't be completed any more.")
+
+
+def _links_warn(fs):
+    hl = node(fs, H + "/dir1/file2-hl", False)
+    orig = fs.sys.get("m_ino")
+    if hl is not None and orig in fs.inodes and hl.ino != orig and hl.kind == "f":
+        return ("~/dir1/file2-hl is a separate file, not a hard link to file2: ls -li shows two different inode numbers. "
+                "rm file2-hl, then make the link with  ln file2 file2-hl  (existing file first, new name second).")
+    sl = node(fs, H + "/dir1/file3-sl", False)
+    if sl is not None and sl.kind == "f":
+        return ("~/dir1/file3-sl is an ordinary file (ls -l starts with -), not a symbolic link (a symlink starts with l and shows -> file3). "
+                "touch makes plain files. rm file3-sl, then  ln -s file3 file3-sl")
+    if sl is not None and sl.kind == "l" and not sl.target.endswith("file3"):
+        return "~/dir1/file3-sl is a symlink, but it points at %s instead of file3. rm file3-sl, then  ln -s file3 file3-sl" % sl.target
+    return None
 
 
 def s_needle(fs, sh):
@@ -393,53 +418,425 @@ mission(id="repo-rebellion", level=6, title="Repo Rebellion",
         solution=["createrepo /repo", "cat /etc/yum.repos.d/local.repo", "sudo sed -i 's/enabled=0/enabled=1/' /etc/yum.repos.d/local.repo",
                   "sudo sed -i 's/gpgcheck=1/gpgcheck=0/' /etc/yum.repos.d/local.repo", "sudo dnf install -y localtool"], par=4)
 
-# ============================================================================= Level 7: Modules 11-12 (preview)
+# ============================================================================= Level 7: Module 11 (Lessons 7.1-7.2)
+def st(fs):
+    return storage.S(fs)
+
+
+def blk(fs, p):
+    return st(fs)["blk"].get(p, {})
+
+
+def fstab_for(fs, mp):
+    for e in storage.fstab_entries(fs):
+        if e["mp"] == mp:
+            return e
+    return None
+
+
+def fstab_dev_is(fs, mp, dev, uuid_only=False):
+    e = fstab_for(fs, mp)
+    if not e:
+        return False
+    if e["dev"].startswith("UUID="):
+        return e["dev"][5:].strip('"').lower() == storage.uuid_for(dev)
+    return (not uuid_only) and e["dev"] == dev
+
+
+def booted_ok(fs):
+    return st(fs)["boots"] >= 1 and st(fs)["boot_ok"]
+
+
+def ftext(fs, path):
+    return (text(fs, path) or "").strip()
+
+
+# -- Disk Detective (7.1: detect the hardware, read UUIDs and labels)
+def s_detective(fs, sh):
+    storage.add_disk(fs, "sdb", 8192, model="VMware Virtual disk")
+    storage.add_part(fs, "/dev/sdb", 1, 1, 3072, fstype="ext4", label="payroll", ptable="gpt")
+    storage.add_part(fs, "/dev/sdb", 2, 3073, 5118, fstype="xfs", label="archive")
+    storage.add_disk(fs, "sdc", 4096)
+    storage.add_disk(fs, "sdd", 2048)
+    storage.add_part(fs, "/dev/sdd", 1, 1, 2047, fstype="ext4", label="scratch", ptable="dos")
+
+
+def _uuid_file_ok(fs):
+    t = ftext(fs, H + "/payroll-uuid.txt").replace('"', "")
+    if t.upper().startswith("UUID="):
+        t = t[5:]
+    return t.lower() == storage.uuid_for("/dev/sdb1")
+
+
+mission(id="disk-detective", level=7, title="Disk Detective",
+        brief="Three disks were plugged into rocky01 over the weekend and nobody wrote anything down. Before anyone partitions anything, find out what's there.",
+        goals=["Save a filesystem inventory (lsblk -f) to ~/inventory.txt",
+               "Put the UUID of the partition labelled payroll (just the UUID) in ~/payroll-uuid.txt",
+               "Write the device name of the disk that has NO partitions to ~/blank-disk.txt",
+               "Write the partition table type of /dev/sdd (gpt or dos) to ~/sdd-table.txt"],
+        setup=s_detective,
+        check=lambda fs, sh: [all(x in ftext(fs, H + "/inventory.txt") for x in ("payroll", "sdd1", storage.uuid_for("/dev/sdb1"))),
+                              _uuid_file_ok(fs),
+                              ftext(fs, H + "/blank-disk.txt") in ("/dev/sdc", "sdc"),
+                              ftext(fs, H + "/sdd-table.txt").lower() in ("dos", "msdos", "mbr")],
+        hints=["lsblk -f > ~/inventory.txt  (redirect the output into the file)",
+               "sudo blkid lists LABEL and UUID. blkid -s UUID -o value /dev/sdb1 prints just the UUID: redirect it into the file.",
+               "lsblk shows which disk has no part rows under it. Then: echo /dev/sdX > ~/blank-disk.txt",
+               "sudo fdisk -l /dev/sdd shows 'Disklabel type:' (or sudo parted /dev/sdd print -> 'Partition Table:')."],
+        solution=["lsblk -f > ~/inventory.txt", "sudo blkid", "sudo blkid -s UUID -o value /dev/sdb1 > ~/payroll-uuid.txt", "lsblk",
+                  "echo /dev/sdc > ~/blank-disk.txt", "sudo fdisk -l /dev/sdd", "echo dos > ~/sdd-table.txt"], par=6)
+
+
+# -- fdisk Drill (7.1: the slide demo, MBR primary / extended / logical, partprobe)
+def s_fdisk(fs, sh):
+    storage.add_disk(fs, "sdb", 10240)
+    storage.add_part(fs, "/dev/sdb", 1, 1, 4096, fstype="xfs", ptable="dos")
+    fs.put_dir("/data")
+    storage.attach(fs, "/dev/sdb1", "/data")
+    fs.write("/etc/fstab", "/dev/sdb1 /data xfs defaults 0 0\n", "root", append=True)
+
+
+def _logical(fs, num, lo=None, hi=None):
+    v = blk(fs, "/dev/sdb%d" % num)
+    if v.get("pkind") != "logical":
+        return False
+    return (lo is None or v["size"] >= lo) and (hi is None or v["size"] <= hi)
+
+
+mission(id="fdisk-drill", level=7, title="fdisk Drill",
+        brief="/dev/sdb (10 GB, MBR) has one 4 GB partition, mounted on /data and in use. Use the rest of the disk exactly the way the Module 11 demo does: fdisk, then tell the kernel.",
+        goals=["Add an EXTENDED partition /dev/sdb2 that fills the rest of the disk",
+               "Inside it create logical partitions /dev/sdb5 (2G) and /dev/sdb6 (the rest)",
+               "Make the kernel see the new partitions without rebooting (the disk is busy)",
+               "Format /dev/sdb5 as ext4 and turn /dev/sdb6 into active swap"],
+        setup=s_fdisk,
+        check=lambda fs, sh: [blk(fs, "/dev/sdb2").get("pkind") == "extended" and blk(fs, "/dev/sdb2").get("size", 0) >= 6000,
+                              _logical(fs, 5, 1990, 2110) and _logical(fs, 6, 3000),
+                              _logical(fs, 5) and not blk(fs, "/dev/sdb5").get("pending") and not blk(fs, "/dev/sdb6").get("pending"),
+                              blk(fs, "/dev/sdb5").get("fstype") == "ext4" and "/dev/sdb6" in st(fs)["swaps"]],
+        hints=["sudo fdisk /dev/sdb, then n, e (extended), Enter, Enter, Enter. Press p to look before w.",
+               "Still in fdisk: n, l (logical), Enter, +2G. Then n, l, Enter, Enter. Then w.",
+               "fdisk says 'Device or resource busy' because /data is mounted. sudo partprobe fixes that (cat /proc/partitions to check).",
+               "sudo mkfs.ext4 /dev/sdb5 ; sudo mkswap /dev/sdb6 ; sudo swapon /dev/sdb6"],
+        solution=["sudo fdisk -l /dev/sdb", "printf 'n\\ne\\n\\n\\n\\nn\\nl\\n\\n+2G\\nn\\nl\\n\\n\\np\\nw\\n' | sudo fdisk /dev/sdb",
+                  "sudo partprobe", "cat /proc/partitions", "sudo mkfs.ext4 /dev/sdb5", "sudo mkswap /dev/sdb6", "sudo swapon /dev/sdb6"], par=7)
+
+
+# -- New Disk Day (7.1: the 7-step storage deployment summary)
 def s_newdisk(fs, sh):
     storage.add_disk(fs, "sdb", 10240)
 
 
-def _fstab_has(fs, mp, fstype):
-    for l in (text(fs, "/etc/fstab") or "").split("\n"):
-        f = l.split()
-        if len(f) >= 4 and f[1] == mp and f[2] == fstype and (f[0] in ("/dev/sdb1",) or f[0].startswith("UUID=")):
+def _rocky_wrote(fs, dev, name):
+    r = st(fs)["fsroot"].get(dev)
+    if not r or name not in r["entries"]:
+        return False
+    n = fs.inodes.get(r["entries"][name])
+    return n is not None and n.owner == "rocky"
+
+
+mission(id="new-disk", level=7, title="New Disk Day",
+        brief="A new 10 GB disk /dev/sdb was added for downloads. Follow the slides' storage deployment summary from 'Linux sees it' to 'it comes back after a reboot'.",
+        goals=["Give /dev/sdb a GPT table with one partition /dev/sdb1 using the whole disk (parted)",
+               "Format /dev/sdb1 with XFS and mount it on /opt/downloads",
+               "Let rocky write there: create /opt/downloads/test.txt AS rocky (no sudo)",
+               "Add /dev/sdb1 (or its UUID) on /opt/downloads, type xfs, to /etc/fstab",
+               "Reboot cleanly with the disk back on /opt/downloads"],
+        setup=s_newdisk,
+        check=lambda fs, sh: [blk(fs, "/dev/sdb").get("ptable") == "gpt" and blk(fs, "/dev/sdb1").get("size", 0) >= 10000,
+                              blk(fs, "/dev/sdb1").get("fstype") == "xfs" and st(fs)["mounts"].get("/opt/downloads") == "/dev/sdb1",
+                              _rocky_wrote(fs, "/dev/sdb1", "test.txt"),
+                              fstab_dev_is(fs, "/opt/downloads", "/dev/sdb1") and (fstab_for(fs, "/opt/downloads") or {}).get("type") == "xfs",
+                              booted_ok(fs) and st(fs)["mounts"].get("/opt/downloads") == "/dev/sdb1"],
+        hints=["lsblk or hwinfo --block to confirm Linux sees sdb. Then sudo parted /dev/sdb: mklabel gpt, mkpart primary xfs 1MiB 100%, print, quit.",
+               "sudo mkfs.xfs /dev/sdb1 ; sudo mkdir /opt/downloads ; sudo mount /dev/sdb1 /opt/downloads",
+               "The mount point now shows the new filesystem, owned by root: sudo chown rocky:rocky /opt/downloads, then touch /opt/downloads/test.txt",
+               "echo '/dev/sdb1 /opt/downloads xfs defaults 0 0' | sudo tee -a /etc/fstab  (a > redirect would fail: it runs as rocky)",
+               "Test with sudo mount -a, then sudo reboot, then lsblk -f / mount | grep sdb1."],
+        solution=["lsblk", "sudo parted -s /dev/sdb mklabel gpt mkpart primary xfs 1MiB 100%", "sudo parted /dev/sdb print", "sudo mkfs.xfs /dev/sdb1",
+                  "sudo mkdir /opt/downloads", "sudo mount /dev/sdb1 /opt/downloads", "sudo chown rocky:rocky /opt/downloads", "touch /opt/downloads/test.txt",
+                  "echo '/dev/sdb1 /opt/downloads xfs defaults 0 0' | sudo tee -a /etc/fstab", "sudo mount -a", "sudo reboot", "mount | grep sdb1"], par=11)
+
+
+# -- Filesystem Fixer (7.1: ext and XFS tools)
+def s_fixer(fs, sh):
+    storage.add_disk(fs, "sdb", 5120)
+    storage.add_part(fs, "/dev/sdb", 1, 1, 5118, fstype="ext4", ptable="gpt")
+    storage.S(fs)["blk"]["/dev/sdb1"]["errors"] = True
+    fs.put_dir("/archive")
+    storage.attach(fs, "/dev/sdb1", "/archive")
+    fs.write("/archive/2025-q4.tar.gz", "archive data\n", "root")
+    fs.write("/etc/fstab", "/dev/sdb1 /archive ext4 defaults 0 0\n", "root", append=True)
+    storage.add_disk(fs, "sdc", 2048)
+    storage.add_part(fs, "/dev/sdc", 1, 1, 2046, fstype="xfs", ptable="gpt")
+    old = fs.read("/var/log/messages", "root")
+    fs.put("/var/log/messages", old + "Nov 15 12:01:44 rocky01 kernel: EXT4-fs error (device sdb1): ext4_lookup:1855: inode #12: comm ls: deleted inode referenced: 1234\n", mode=0o600)
+
+
+mission(id="fs-fixer", level=7, title="Filesystem Fixer",
+        brief="The kernel log is complaining about the ext4 filesystem on /dev/sdb1 (mounted on /archive). Repair it, tidy up its settings, and label the spare XFS partition while you're there.",
+        goals=["Repair the ext4 filesystem on /dev/sdb1 with fsck (it must be UNMOUNTED first)",
+               "Label /dev/sdb1 archive (e2label or tune2fs -L)",
+               "Cut its reserved blocks to 1% (tune2fs -m)",
+               "Put /dev/sdb1 back on /archive",
+               "Label the XFS partition /dev/sdc1 scratch (xfs_admin -L)"],
+        setup=s_fixer,
+        check=lambda fs, sh: [not blk(fs, "/dev/sdb1").get("errors"), blk(fs, "/dev/sdb1").get("label") == "archive",
+                              blk(fs, "/dev/sdb1").get("reserved") == 1, st(fs)["mounts"].get("/archive") == "/dev/sdb1",
+                              blk(fs, "/dev/sdc1").get("label") == "scratch"],
+        hints=["sudo grep -i error /var/log/messages ; sudo tune2fs -l /dev/sdb1 shows 'Filesystem state'.",
+               "fsck refuses a mounted filesystem: sudo umount /archive, then sudo fsck -y /dev/sdb1",
+               "sudo e2label /dev/sdb1 archive ; sudo tune2fs -m 1 /dev/sdb1",
+               "sudo mount /archive  (one argument: mount looks it up in /etc/fstab)",
+               "sudo xfs_admin -L scratch /dev/sdc1 ; check with sudo blkid or lsblk -f"],
+        solution=["sudo grep -i error /var/log/messages", "sudo umount /archive", "sudo fsck -y /dev/sdb1", "sudo e2label /dev/sdb1 archive",
+                  "sudo tune2fs -m 1 /dev/sdb1", "sudo mount /archive", "sudo xfs_admin -L scratch /dev/sdc1", "lsblk -f"], par=7)
+
+
+# -- Swap Shop (7.1: swap partition + swap file, persistent)
+def s_swap(fs, sh):
+    storage.add_disk(fs, "sdb", 4096)
+    t = fs.read("/etc/fstab", "root").replace("/dev/mapper/rl-swap     none                    swap    defaults        0 0\n", "")
+    fs.put("/etc/fstab", t)
+
+
+def _swapfile_ok(fs):
+    n = node(fs, "/swapfile")
+    return n is not None and n.size() >= 1024 * 1048576 and (n.mode & 0o777) == 0o600 and "/swapfile" in st(fs)["swaps"]
+
+
+def _fstab_swap(fs, dev):
+    for e in storage.fstab_entries(fs):
+        if e["type"] == "swap" and (e["dev"] == dev or (e["dev"].startswith("UUID=") and e["dev"][5:].strip('"').lower() == storage.uuid_for(dev))):
             return True
     return False
 
 
-mission(id="new-disk", level=7, title="New Disk Day (preview)",
-        brief="PREVIEW of Modules 11-12. A new 10 GB disk /dev/sdb was added. Partition it, format it XFS, mount it at /data, and make the mount survive a reboot.",
-        goals=["Create partition /dev/sdb1 (GPT label, whole disk)", "Format /dev/sdb1 with XFS", "Mount it on /data",
-               "Add a /etc/fstab line for /dev/sdb1 (or its UUID) on /data, type xfs"],
-        setup=s_newdisk,
-        check=lambda fs, sh: ["/dev/sdb1" in storage.S(fs)["blk"], storage.S(fs)["blk"].get("/dev/sdb1", {}).get("fstype") == "xfs",
-                              storage.S(fs)["mounts"].get("/data") == "/dev/sdb1", _fstab_has(fs, "/data", "xfs")],
-        hints=["sudo parted -s /dev/sdb mklabel gpt, then sudo parted -s /dev/sdb mkpart primary xfs 1MiB 100%", "sudo mkfs.xfs /dev/sdb1 ; sudo mkdir /data",
-               "sudo mount /dev/sdb1 /data", "echo '/dev/sdb1 /data xfs defaults 0 0' | sudo tee -a /etc/fstab   (lsblk / df -h to check)"],
-        solution=["sudo parted -s /dev/sdb mklabel gpt", "sudo parted -s /dev/sdb mkpart primary xfs 1MiB 100%", "sudo mkfs.xfs /dev/sdb1", "sudo mkdir /data",
-                  "sudo mount /dev/sdb1 /data", "echo '/dev/sdb1 /data xfs defaults 0 0' | sudo tee -a /etc/fstab", "lsblk"], par=6)
+mission(id="swap-shop", level=7, title="Swap Shop",
+        brief="rocky01 was built with 1.9 GB of RAM and NO swap, and the database keeps getting killed. Add swap two ways (the slides list device swap and file swap) and make both permanent.",
+        goals=["Make a 2G partition /dev/sdb1 on the new disk, turn it into swap and switch it on",
+               "Create a 1 GiB swap file /swapfile with dd, permissions 600, and switch it on",
+               "Add both to /etc/fstab (type swap)",
+               "Reboot and check that both swap areas come back"],
+        setup=s_swap,
+        check=lambda fs, sh: [blk(fs, "/dev/sdb1").get("fstype") == "swap" and 1990 <= blk(fs, "/dev/sdb1").get("size", 0) <= 2110 and "/dev/sdb1" in st(fs)["swaps"],
+                              _swapfile_ok(fs), _fstab_swap(fs, "/dev/sdb1") and _fstab_swap(fs, "/swapfile"),
+                              booted_ok(fs) and "/dev/sdb1" in st(fs)["swaps"] and "/swapfile" in st(fs)["swaps"]],
+        hints=["free -h and swapon --show first. sudo fdisk /dev/sdb: n, p, Enter, Enter, +2G, then t and 82 (Linux swap), then w.",
+               "sudo mkswap /dev/sdb1 ; sudo swapon /dev/sdb1",
+               "sudo dd if=/dev/zero of=/swapfile bs=1M count=1024 ; sudo chmod 600 /swapfile ; sudo mkswap /swapfile ; sudo swapon /swapfile",
+               "echo '/dev/sdb1 none swap defaults 0 0' | sudo tee -a /etc/fstab  (and the same for /swapfile). Then sudo reboot ; swapon --show"],
+        solution=["free -h", "printf 'n\\np\\n\\n\\n+2G\\nt\\n82\\nw\\n' | sudo fdisk /dev/sdb", "sudo mkswap /dev/sdb1", "sudo swapon /dev/sdb1",
+                  "sudo dd if=/dev/zero of=/swapfile bs=1M count=1024", "sudo chmod 600 /swapfile", "sudo mkswap /swapfile", "sudo swapon /swapfile",
+                  "echo '/dev/sdb1 none swap defaults 0 0' | sudo tee -a /etc/fstab", "echo '/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab",
+                  "sudo reboot", "swapon --show"], par=11)
 
 
+# -- LVM Builder (7.2)
 def s_lvm(fs, sh):
     storage.add_disk(fs, "sdc", 2048)
     storage.add_disk(fs, "sdd", 2048)
 
 
 def _lv(fs):
-    return storage.S(fs)["lv"].get(("vg0", "lvdata"))
+    return st(fs)["lv"].get(("vg0", "lvdata"))
 
 
-mission(id="lvm-builder", level=7, title="LVM Builder (preview)",
-        brief="PREVIEW of Modules 11-12. Pool two 2 GB disks with LVM, carve out a volume for the app, then grow it when the app gets popular.",
+mission(id="lvm-builder", level=7, title="LVM Builder",
+        brief="Pool two 2 GB disks with LVM (physical volumes -> volume group -> logical volumes), carve out a volume for the app, then grow it without a reboot when the app gets popular.",
         goals=["Make /dev/sdc and /dev/sdd physical volumes", "Create volume group vg0 from both", "Create a 2G logical volume lvdata in vg0, format it ext4, mount it on /srv/app",
                "Extend lvdata by 1G AND grow the filesystem to match"],
         setup=s_lvm,
-        check=lambda fs, sh: [all(d in storage.S(fs)["pv"] for d in ("/dev/sdc", "/dev/sdd")),
-                              sorted(storage.S(fs)["vg"].get("vg0", {}).get("pvs", [])) == ["/dev/sdc", "/dev/sdd"],
-                              _lv(fs) is not None and storage.S(fs)["blk"].get("/dev/vg0/lvdata", {}).get("fstype") == "ext4" and storage.S(fs)["mounts"].get("/srv/app") == "/dev/vg0/lvdata",
-                              (_lv(fs) or 0) >= 3072 and storage.S(fs)["blk"].get("/dev/vg0/lvdata", {}).get("fs_size", 0) >= 3072],
-        hints=["Order: pvcreate -> vgcreate -> lvcreate -> mkfs -> mount.", "sudo lvcreate -L 2G -n lvdata vg0", "sudo lvextend -L +1G /dev/vg0/lvdata, then sudo resize2fs /dev/vg0/lvdata (ext4)."],
+        check=lambda fs, sh: [all(d in st(fs)["pv"] for d in ("/dev/sdc", "/dev/sdd")),
+                              sorted(st(fs)["vg"].get("vg0", {}).get("pvs", [])) == ["/dev/sdc", "/dev/sdd"],
+                              _lv(fs) is not None and blk(fs, "/dev/vg0/lvdata").get("fstype") == "ext4" and st(fs)["mounts"].get("/srv/app") == "/dev/vg0/lvdata",
+                              (_lv(fs) or 0) >= 3072 and blk(fs, "/dev/vg0/lvdata").get("fs_size", 0) >= 3072],
+        hints=["Order: pvcreate -> vgcreate -> lvcreate -> mkfs -> mount. Check each step with pvs, vgs, lvs.", "sudo lvcreate -L 2G -n lvdata vg0",
+               "sudo lvextend -L +1G /dev/vg0/lvdata, then sudo resize2fs /dev/vg0/lvdata (ext4). Or lvextend -r does both."],
         solution=["sudo pvcreate /dev/sdc /dev/sdd", "sudo vgcreate vg0 /dev/sdc /dev/sdd", "sudo lvcreate -L 2G -n lvdata vg0", "sudo mkfs.ext4 /dev/vg0/lvdata",
                   "sudo mkdir -p /srv/app", "sudo mount /dev/vg0/lvdata /srv/app", "sudo lvextend -L +1G /dev/vg0/lvdata", "sudo resize2fs /dev/vg0/lvdata"], par=8)
+
+
+# ============================================================================= Level 8: Module 12 (Lessons 7.3-7.4, preview)
+# -- Mount Point Mystery (files hidden under a mount point)
+MEDIA = ("lecture01.mp4", "lecture02.mp4", "notes.txt")
+
+
+def s_mystery(fs, sh):
+    storage.add_disk(fs, "sdb", 8192)
+    storage.add_part(fs, "/dev/sdb", 1, 1, 8190, fstype="xfs", ptable="gpt")
+    fs.put_dir("/srv/media", owner="rocky", mode=0o755)
+    from .vfs import Blob
+    for name in MEDIA:
+        n = fs.put("/srv/media/" + name, "", owner="rocky")
+        n.data = Blob(700 * 1048576) if name.endswith(".mp4") else "Week 12 notes: mount, fstab, UUIDs\n"
+
+
+def _media_dead(fs):
+    """A lecture file no longer exists anywhere (visible tree, hidden under a mount, or on an unmounted disk)."""
+    alive = set()
+    s = storage.S(fs)
+    stacks = [fs.root.entries] + [u["entries"] for u in s["under"].values()] + [r["entries"] for r in s["fsroot"].values()]
+    seen = set()
+    while stacks:
+        ents = stacks.pop()
+        for name, ino in ents.items():
+            if ino in seen:
+                continue
+            seen.add(ino)
+            alive.add(name)
+            n = fs.inodes.get(ino)
+            if n is not None and n.kind == "d":
+                stacks.append(n.entries)
+    lost = [x for x in MEDIA if x not in alive]
+    if not lost:
+        return None
+    return "%s was deleted, so it can never end up on the new disk." % ", ".join(lost)
+
+
+def _media_on_disk(fs):
+    return all(x in storage.mounted_entries(fs, "/dev/sdb1") for x in MEDIA)
+
+
+mission(id="mount-mystery", level=8, title="Mount Point Mystery",
+        brief="The media team copied 1.4 GB of lectures into /srv/media, but nobody had mounted the new disk /dev/sdb1 there, so the files landed on the root filesystem. Move them onto the disk where they belong.",
+        goals=["Get all three files onto the new disk /dev/sdb1",
+               "Leave nothing behind underneath /srv/media on the root filesystem",
+               "Mount /dev/sdb1 on /srv/media, owned by rocky so the team can keep writing",
+               "Make it permanent in /etc/fstab using the UUID (not /dev/sdb1)",
+               "Reboot cleanly with the disk back on /srv/media"],
+        setup=s_mystery,
+        dead=lambda fs, sh: _media_dead(fs),
+        check=lambda fs, sh: [_media_on_disk(fs), _media_on_disk(fs) and not storage.under_entries(fs, "/srv/media"),
+                              st(fs)["mounts"].get("/srv/media") == "/dev/sdb1" and node(fs, "/srv/media").owner == "rocky",
+                              fstab_dev_is(fs, "/srv/media", "/dev/sdb1", uuid_only=True),
+                              booted_ok(fs) and st(fs)["mounts"].get("/srv/media") == "/dev/sdb1"],
+        hints=["If you mount the disk on /srv/media now, the files don't vanish: they're hidden UNDER the mount. Mount the disk somewhere else first, e.g. /mnt.",
+               "sudo mount /dev/sdb1 /mnt ; sudo mv /srv/media/* /mnt/ ; sudo umount /mnt",
+               "sudo mount /dev/sdb1 /srv/media ; sudo chown rocky:rocky /srv/media",
+               "sudo blkid -s UUID -o value /dev/sdb1 gives the UUID. echo 'UUID=... /srv/media xfs defaults 0 0' | sudo tee -a /etc/fstab ; sudo mount -a ; sudo reboot"],
+        solution=["df -h", "sudo mount /dev/sdb1 /mnt", "sudo mv /srv/media/lecture01.mp4 /srv/media/lecture02.mp4 /srv/media/notes.txt /mnt/", "sudo umount /mnt",
+                  "sudo mount /dev/sdb1 /srv/media", "sudo chown rocky:rocky /srv/media", "sudo blkid /dev/sdb1",
+                  "echo 'UUID=%s /srv/media xfs defaults 0 0' | sudo tee -a /etc/fstab" % storage.uuid_for("/dev/sdb1"), "sudo mount -a", "sudo reboot"], par=10)
+
+
+# -- Boot Breaker (fstab troubleshooting)
+def s_breaker(fs, sh):
+    storage.add_disk(fs, "sdb", 6144)
+    storage.add_part(fs, "/dev/sdb", 1, 1, 3072, fstype="xfs", label="web", ptable="gpt")
+    storage.add_part(fs, "/dev/sdb", 2, 3073, 3070, fstype="ext4", label="backup")
+    storage.add_disk(fs, "sdc", 2048)
+    storage.add_part(fs, "/dev/sdc", 1, 1, 2046, fstype="xfs", label="reports", ptable="gpt")
+    fs.put_dir("/var/www")
+    fs.put_dir("/backup")
+    real = storage.uuid_for("/dev/sdb1")
+    typo = real[:-1] + ("0" if real[-1] != "0" else "1")
+    fs.write("/etc/fstab", "UUID=%s /var/www xfs defaults 0 0\n/dev/sdb2 /backup xfs defaults 0 0\n/dev/sdc1 /reports xfs defaults 0 0\n" % typo, "root", append=True)
+    storage.S(fs)["boot_ok"] = False
+
+
+def _all_three(fs):
+    m = st(fs)["mounts"]
+    return m.get("/var/www") == "/dev/sdb1" and m.get("/backup") == "/dev/sdb2" and m.get("/reports") == "/dev/sdc1"
+
+
+mission(id="boot-breaker", level=8, title="Boot Breaker",
+        brief="After last night's maintenance rocky01 boots into EMERGENCY MODE. Someone added three lines to /etc/fstab and every one of them is wrong in a different way.",
+        goals=["Fix the /var/www line (its UUID is wrong: blkid shows the real one)",
+               "Fix the /backup line (wrong filesystem type)",
+               "Fix /reports (its mount point doesn't exist)",
+               "Reboot cleanly with all three filesystems mounted"],
+        setup=s_breaker,
+        check=lambda fs, sh: [fstab_dev_is(fs, "/var/www", "/dev/sdb1"), (fstab_for(fs, "/backup") or {}).get("type") == "ext4",
+                              node(fs, "/reports") is not None and node(fs, "/reports").kind == "d",
+                              booted_ok(fs) and _all_three(fs)],
+        hints=["cat /etc/fstab, then sudo mount -a: each error message names the broken line.",
+               "sudo blkid /dev/sdb1 shows the real UUID. Fix it with sudo sed -i 's/OLD/NEW/' /etc/fstab (copy the last few characters).",
+               "lsblk -f shows /dev/sdb2 is ext4: sudo sed -i 's/backup xfs/backup ext4/' /etc/fstab",
+               "sudo mkdir /reports. Then sudo mount -a must print nothing. Then sudo reboot."],
+        solution=["cat /etc/fstab", "sudo mount -a", "sudo blkid",
+                  "sudo sed -i 's/UUID=[0-9a-f-]* \\/var\\/www/UUID=%s \\/var\\/www/' /etc/fstab" % storage.uuid_for("/dev/sdb1"),
+                  "sudo sed -i 's/backup xfs/backup ext4/' /etc/fstab", "sudo mkdir /reports", "sudo mount -a", "sudo reboot"], par=8)
+
+
+# -- Quota Cop (disk quotas)
+def s_quota(fs, sh):
+    storage.add_disk(fs, "sdb", 4096)
+    storage.add_part(fs, "/dev/sdb", 1, 1, 4094, fstype="ext4", ptable="gpt")
+    fs.put_dir("/home2")
+    storage.attach(fs, "/dev/sdb1", "/home2")
+    fs.write("/etc/fstab", "/dev/sdb1 /home2 ext4 defaults 0 0\n", "root", append=True)
+    from .vfs import Blob
+    fs.mkdir("/home2/bob", "root")
+    n = fs.lookup("/home2/bob")
+    n.owner = n.group = "bob"
+    n.mode = 0o700
+    f = fs.put("/home2/bob/videos.tar", "", owner="bob")
+    f.data = Blob(450 * 1048576)
+
+
+def _qopts(fs):
+    e = fstab_for(fs, "/home2") or {}
+    o = e.get("opts", "").split(",")
+    return "usrquota" in o and "grpquota" in o
+
+
+def _bob(fs):
+    q = st(fs)["quota"].get("/home2", {})
+    lim = q.get("users", {}).get("bob")
+    return bool(lim) and 500000 <= lim[0] <= 512000 and 600000 <= lim[1] <= 614400
+
+
+mission(id="quota-cop", level=8, title="Quota Cop",
+        brief="bob keeps filling /home2 with videos. Turn on disk quotas for /home2 and give bob a soft limit of 500 MB and a hard limit of 600 MB.",
+        goals=["Enable user AND group quotas for /home2 in /etc/fstab (usrquota,grpquota)",
+               "Apply them without rebooting and build the quota files (quotacheck)",
+               "Turn quotas on for /home2",
+               "Limit bob: soft 500 MB, hard 600 MB (in 1K blocks: 512000 / 614400)"],
+        setup=s_quota,
+        check=lambda fs, sh: [_qopts(fs),
+                              all(storage._quota_opts(st(fs), "/home2")) and st(fs)["quota"].get("/home2", {}).get("checked", False) and "aquota.user" in storage.mounted_entries(fs, "/dev/sdb1"),
+                              st(fs)["quota"].get("/home2", {}).get("on", False), _bob(fs)],
+        hints=["sudo sed -i 's/home2 ext4 defaults/home2 ext4 defaults,usrquota,grpquota/' /etc/fstab",
+               "sudo mount -o remount /home2 (re-reads fstab options; check with mount), then sudo quotacheck -cug /home2",
+               "sudo quotaon /home2",
+               "sudo setquota -u bob 512000 614400 0 0 /home2 ; sudo repquota /home2"],
+        solution=["sudo sed -i 's/home2 ext4 defaults/home2 ext4 defaults,usrquota,grpquota/' /etc/fstab", "sudo mount -o remount /home2", "mount | grep home2",
+                  "sudo quotacheck -cug /home2", "sudo quotaon /home2", "sudo setquota -u bob 512000 614400 0 0 /home2", "sudo repquota /home2"], par=6)
+
+
+# -- RAID Rescue (software RAID 1)
+def s_raid(fs, sh):
+    for d in ("sdb", "sdc", "sdd"):
+        storage.add_disk(fs, d, 2048)
+    storage.make_md(fs, "/dev/md0", 1, ["/dev/sdb", "/dev/sdc"], fstype="xfs")
+    fs.put_dir("/srv/vault")
+    storage.attach(fs, "/dev/md0", "/srv/vault")
+    fs.write("/srv/vault/grades-fall2026.csv", "id,grade\n1001,A\n1002,B\n", "root")
+    fs.write("/etc/fstab", "/dev/md0 /srv/vault xfs defaults 0 0\n", "root", append=True)
+
+
+def _md(fs):
+    return st(fs)["md"].get("/dev/md0", {"members": [], "failed": [], "spares": []})
+
+
+mission(id="raid-rescue", level=8, title="RAID Rescue",
+        brief="/dev/md0 is a software RAID 1 mirror of /dev/sdb and /dev/sdc, mounted on /srv/vault. The kernel log says sdc is throwing I/O errors. Swap in the spare disk /dev/sdd without losing the data or unmounting.",
+        goals=["Mark the failing disk /dev/sdc as faulty and remove it from /dev/md0",
+               "Add the spare /dev/sdd so the mirror is healthy again ([UU] in /proc/mdstat)",
+               "Save the array's details (mdadm --detail) to ~/md0-status.txt",
+               "Record the array in /etc/mdadm.conf (mdadm --detail --scan)"],
+        setup=s_raid,
+        check=lambda fs, sh: ["/dev/sdc" not in _md(fs)["members"] and "/dev/sdc" not in _md(fs)["failed"],
+                              _md(fs)["members"] == ["/dev/sdb", "/dev/sdd"] and st(fs)["mounts"].get("/srv/vault") == "/dev/md0",
+                              all(x in ftext(fs, H + "/md0-status.txt") for x in ("/dev/sdd", "clean")) and "degraded" not in ftext(fs, H + "/md0-status.txt"),
+                              "ARRAY /dev/md0" in ftext(fs, "/etc/mdadm.conf")],
+        hints=["sudo grep sdc /var/log/messages ; cat /proc/mdstat",
+               "sudo mdadm /dev/md0 --fail /dev/sdc, then sudo mdadm /dev/md0 --remove /dev/sdc (remove only works once it's failed)",
+               "sudo mdadm /dev/md0 --add /dev/sdd ; cat /proc/mdstat should show [2/2] [UU]",
+               "sudo mdadm --detail /dev/md0 > ~/md0-status.txt ; sudo mdadm --detail --scan | sudo tee /etc/mdadm.conf"],
+        solution=["cat /proc/mdstat", "sudo mdadm /dev/md0 --fail /dev/sdc", "sudo mdadm /dev/md0 --remove /dev/sdc", "sudo mdadm /dev/md0 --add /dev/sdd",
+                  "cat /proc/mdstat", "sudo mdadm --detail /dev/md0 > ~/md0-status.txt", "sudo mdadm --detail --scan | sudo tee /etc/mdadm.conf"], par=6)
 
 
 def build(m):

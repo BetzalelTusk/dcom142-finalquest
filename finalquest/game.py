@@ -7,8 +7,8 @@ import time
 
 from . import ui
 from .ui import c, out, box
-from . import content_recall_a, content_recall_b, content_mc_a, content_mc_b  # noqa: F401  (register questions)
-from .content_base import RECALL, MC, TOPICS
+from . import content_recall_a, content_recall_b, content_mc_a, content_mc_b, content_storage  # noqa: F401  (register questions)
+from .content_base import RECALL, MC, TOPICS, is_preview
 from . import grading, missions as M, vimdojo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,8 +27,10 @@ LEVELS = [
      "boss": "The Dependency Dragon", "story": "The web server needs installing on two different distros. rpm or dnf? dpkg or apt? Pick wrong and the Dependency Dragon wakes up."},
     {"n": 6, "title": "Repo Rebellion", "mod": "Module 10 · Lesson 6.2", "topics": ["repos"],
      "boss": "The Rogue Repo Kraken", "story": "Software has to come from somewhere: the web, a vendor repo, your own local repo, or a sandbox. One misconfigured .repo file and the Kraken drags everything under."},
-    {"n": 7, "title": "Storage Vault", "mod": "Modules 11-12 · Lessons 7.1-7.4 (PREVIEW)", "topics": ["storage"],
-     "boss": "The Volume Golem", "story": "PREVIEW: the instructor hasn't posted these slides yet, so this level uses the standard CompTIA Linux+ storage material. Partition, format, mount, persist, and pool disks with LVM."},
+    {"n": 7, "title": "Storage Vault", "mod": "Module 11 · Lessons 7.1-7.2", "topics": ["storage"],
+     "boss": "The Volume Golem", "story": "New disks keep arriving and nobody knows what's on them. Detect them, partition them with fdisk and parted, format, fix and label filesystems, add swap, and pool disks with LVM."},
+    {"n": 8, "title": "Mount Mountain", "mod": "Module 12 · Lessons 7.3-7.4 (PREVIEW)", "topics": ["mounts"],
+     "boss": "The Fstab Phantom", "story": "PREVIEW: the Module 12 deck isn't posted yet. Mounting, fstab, RAID and quotas that ARE on the Module 11 slides are used as-is; the rest follows standard Linux+ XK0-006 material. Hidden files, broken boots, failing mirrors and greedy users."},
 ]
 
 RANKS = [(0, "Intern"), (150, "Junior Admin"), (400, "SysAdmin"), (800, "Senior SysAdmin"), (1400, "Root Wizard"), (2200, "Kernel Legend")]
@@ -37,13 +39,13 @@ BADGES = {
     "first-mission": ("First Shell", "Finish any mission"),
     "three-star": ("Flawless", "Earn 3 stars on a mission"),
     "boss": ("Boss Slayer", "Defeat any boss"),
-    "all-bosses": ("Final Form", "Defeat all seven bosses"),
+    "all-bosses": ("Final Form", "Defeat every boss"),
     "vim-escape": ("I Escaped Vim", "Clear the Escape Hatch puzzle"),
     "dojo": ("Dojo Master", "Clear every Vim Dojo puzzle"),
     "exam-80": ("Exam Ready", "Score 80%+ on a 25+ question exam simulation"),
     "streak-10": ("On Fire", "10 correct answers in a row"),
     "lightning-10": ("Lightning Hands", "10+ correct in one Lightning round"),
-    "all-missions": ("Root of All", "Finish all 20 missions"),
+    "all-missions": ("Root of All", "Finish every mission"),
 }
 
 for i, q in enumerate(RECALL):
@@ -152,8 +154,8 @@ SMALL_LOGO = ["  ___ ___ _  _   _   _       ___  _   _ ___ ___ _____ ",
               " |_| |___|_|\\_/_/ \\_\\____|  \\__\\_\\\\___/|___|___/ |_|  "]
 GRAD = [51, 45, 39, 33, 27, 63, 99, 135]
 
-BOOT = ["Starting rocky01 (Rocky Linux 9.4)...", "Mounting /home", "Loading 174 command drills", "Loading 132 exam questions",
-        "Spawning 20 sandbox missions", "Waking 7 bosses", "Reached target Final Exam"]
+BOOT = ["Starting rocky01 (Rocky Linux 9.4)...", "Mounting /home", "Loading %d command drills" % len(RECALL), "Loading %d exam questions" % len(MC),
+        "Spawning %d sandbox missions" % len(M.MISSIONS), "Waking %d bosses" % len(LEVELS), "Reached target Final Exam"]
 
 
 def header(where=None):
@@ -541,8 +543,18 @@ def play_mission(m):
                 return show_tip(msg, auto=True)
         return None
 
+    warned = set()
+
+    def show_warning(msg):
+        """Real mistakes are always shown (tips on or off), once each."""
+        if msg in warned:
+            return
+        warned.add(msg)
+        out(box([msg], "heads up" if not ui.PLAIN else "warning", color="yellow"))
+
     sh.emit = ui.write
     del shell_mod.PENDING_NOTES[:]
+    del shell_mod.WARNINGS[:]
     while True:
         try:
             line = ui.read_line(sh.colored_prompt(), history=sh.history, complete=sh.complete, tick=(1.0, idle_check))
@@ -610,6 +622,7 @@ def play_mission(m):
             baseline = top_names(fs)
             del queue[:]
             noticed.clear()
+            warned.clear()
             status = M.check(m, fs, sh)
             out(c("  machine reset to the starting state.", "gray"))
             mission_screen(m, fs, sh, status)
@@ -625,6 +638,18 @@ def play_mission(m):
         for n_ in shell_mod.PENDING_NOTES:
             notice("note:" + n_, n_)
         del shell_mod.PENDING_NOTES[:]
+        for w_ in shell_mod.WARNINGS:
+            show_warning(w_)
+        del shell_mod.WARNINGS[:]
+        for key in ("warn", "dead"):
+            fn_ = m.get(key)
+            if fn_:
+                try:
+                    msg = fn_(fs, sh)
+                except Exception:
+                    msg = None
+                if msg:
+                    show_warning(msg + ("  Type !reset for a fresh machine." if key == "dead" else ""))
         outside = not (fs.cwd == home or fs.cwd.startswith(home + "/"))
         if sh.last_status != 0 and outside and "~/" in mission_text:
             notice("outside", "You're in %s, outside your home directory. Errors like Permission denied mean you don't own this spot. "
@@ -781,7 +806,8 @@ BOSS_ART = {
     4: ["  [####...]", "  [##?#.?.]  bad sectors", "  [#.?..#.]"],
     5: ["   __/\\__  ", "  <  dep  >  Failed dependencies", "   \\/  \\/  "],
     6: ["   ,---.   ", "  ( gpg? )  enabled=0", "  /|/|\\|\\  "],
-    7: ["  [PV][PV] ", "  [==VG==]  /etc/fstab", "  [LV][LV] "],
+    7: ["  [PV][PV] ", "  [==VG==]  n p w q", "  [LV][LV] "],
+    8: ["   .-\"-.   ", "  ( UUID? )  emergency mode", "   '-..-'   "],
 }
 
 
@@ -1017,10 +1043,10 @@ def drill_menu():
 def lightning():
     ui.clear()
     header("practice/lightning")
-    out(box(["60 seconds. Type commands as fast as you can.", "No retries, no hints. The clock is checked after each answer. q stops early.", "Questions come from Modules 6-10 (no preview topics)."], "LIGHTNING ROUND", color="yellow"))
+    out(box(["60 seconds. Type commands as fast as you can.", "No retries, no hints. The clock is checked after each answer. q stops early.", "Questions marked PREVIEW (Module 12 items not on a slide yet) are left out."], "LIGHTNING ROUND", color="yellow"))
     if ui.menu([("⏱ Start the clock" if not ui.PLAIN else "Start the clock", "go"), ("← Back", "back")]) != "go":
         return
-    pool = [q for q in RECALL if q["topic"] != "storage" and not q["loose"]]
+    pool = [q for q in RECALL if not is_preview(q) and not q["loose"]]
     random.shuffle(pool)
     start = time.time()
     right = n = 0
@@ -1059,11 +1085,11 @@ def exam_menu():
         ui.clear()
         header("final-exam")
         preview = sv().d.get("exam_preview", True)
-        pool = [q for q in MC if preview or q["topic"] != "storage"]
+        pool = [q for q in MC if preview or not is_preview(q)]
         out(c("\n  FINAL EXAM SIMULATOR", "bold") + c("  ·  multiple choice, graded at the end like the real thing\n", "gray"))
         ch = ui.menu([("Quick exam", 25, "25 questions"), ("Full exam", 50, "50 questions"), ("Everything", len(pool), "all %d questions" % len(pool)),
                       ("Practice exam", "practice", "20 questions, feedback after each one"),
-                      (("[x] " if preview else "[ ] ") + "Include Storage preview questions", "toggle", "Modules 11-12: slides not posted yet · Enter toggles"),
+                      (("[x] " if preview else "[ ] ") + "Include Module 12 PREVIEW questions", "toggle", "not on a slide yet (%d) · Enter toggles" % len([q for q in MC if is_preview(q)])),
                       ("← Main menu", "back")])
         if ch in (None, "back"):
             return
@@ -1183,8 +1209,8 @@ def progress():
         seen = len([q for q in qs if q["id"] in s.d["q"]])
         lines.append("%-10s %s %3d/%-3d  %s" % (t, ui.bar(m_ / float(len(qs)), 18), m_, len(qs), c("seen %d" % seen, "gray")))
     lines.append("")
-    lines.append("Missions %d/%d  ·  Vim Dojo %d/%d  ·  Bosses %d/7  ·  best streak %d" % (
-        len(s.d["missions"]), len(M.MISSIONS), len([1 for v in s.d["vim"].values() if v]), len(vimdojo.PUZZLES), len(s.d["bosses"]), s.d["best_streak"]))
+    lines.append("Missions %d/%d  ·  Vim Dojo %d/%d  ·  Bosses %d/%d  ·  best streak %d" % (
+        len(s.d["missions"]), len(M.MISSIONS), len([1 for v in s.d["vim"].values() if v]), len(vimdojo.PUZZLES), len(s.d["bosses"]), len(LEVELS), s.d["best_streak"]))
     if s.d["exams"]:
         best = max(s.d["exams"], key=lambda e: e["score"] / float(e["total"]))
         lines.append("Best exam %d/%d (%.0f%%)  ·  exams taken %d" % (best["score"], best["total"], 100.0 * best["score"] / best["total"], len(s.d["exams"])))
@@ -1221,9 +1247,9 @@ def how_to_play():
         "  " + c("rocky@rocky01:", "bgreen", "bold") + c("~/campaign/level-4", "bblue", "bold") + c("$ ", "byellow", "bold") + c("pwd", "gray"),
     ], "HOW TO PLAY", color="cyan"))
     out(box([
-        "Covers everything after the DCOM 142 midterm: Modules 6-10 (CertMaster 4.1-6.2), from the instructor's Fall 2026 slides and Learning Objectives pages.",
-        "Modules 11-12 (Storage, 7.1-7.4) weren't posted yet, so Level 7 and its questions are marked PREVIEW and follow standard CompTIA Linux+ XK0-006 material.",
-        "%d typed-command drills · %d multiple-choice questions · %d missions · %d vim puzzles · 7 bosses" % (len(RECALL), len(MC), len(M.MISSIONS), len(vimdojo.PUZZLES)),
+        "Covers everything after the DCOM 142 midterm: Modules 6-12 (CertMaster 4.1-7.4), from the instructor's Fall 2026 slides (Modules 6-11) and Learning Objectives pages.",
+        "The Module 12 deck (7.3-7.4) isn't posted yet: Level 8 uses the mount/fstab/RAID/quota slides from the Module 11 deck, and marks everything else PREVIEW.",
+        "%d typed-command drills · %d multiple-choice questions · %d missions · %d vim puzzles · %d bosses" % (len(RECALL), len(MC), len(M.MISSIONS), len(vimdojo.PUZZLES), len(LEVELS)),
         c("Self-study only: the syllabus doesn't allow AI tools on graded work.", "byellow"),
     ], "ABOUT", color="gray"))
     ui.press_enter()
@@ -1232,12 +1258,12 @@ def how_to_play():
 # ============================================================================= menu map (!menuTree)
 def menu_nodes():
     """(name, path, description, children) describing every menu in the game."""
-    lv = [("level-%d" % l["n"], "campaign/level-%d" % l["n"], l["title"] + ("  (preview)" if l["n"] == 7 else ""),
+    lv = [("level-%d" % l["n"], "campaign/level-%d" % l["n"], l["title"] + ("  (preview)" if "PREVIEW" in l["mod"] else ""),
            ([("vim-dojo/", "campaign/level-3/vim-dojo", "%d keystroke puzzles" % len(vimdojo.PUZZLES), [])] if l["n"] == 3 else []))
           for l in LEVELS]
     return ("~", "", "main menu", [
         ("▶ continue" if not ui.PLAIN else "> continue", "#continue", "jumps to your next unfinished thing", []),
-        ("campaign/", "campaign", "7 levels: missions · boss · drill · cheat sheet", lv),
+        ("campaign/", "campaign", "%d levels: missions · boss · drill · cheat sheet" % len(LEVELS), lv),
         ("practice/", "practice", "quick reps", [
             ("drills/", "practice/drills", "type the command, by topic", []),
             ("lightning", "practice/lightning", "60 seconds", []),
@@ -1373,7 +1399,7 @@ def main_menu():
         nxt = next_step()
         s = sv()
         opts = [("▶ Continue" if not ui.PLAIN else "> Continue", "continue", (nxt[0] if nxt else "all cleared! try the final exam")),
-                ("Campaign", "campaign", "7 levels · %d/%d missions · %d/7 bosses" % (len(s.d["missions"]), len(M.MISSIONS), len(s.d["bosses"]))),
+                ("Campaign", "campaign", "%d levels · %d/%d missions · %d/%d bosses" % (len(LEVELS), len(s.d["missions"]), len(M.MISSIONS), len(s.d["bosses"]), len(LEVELS))),
                 ("Practice", "practice", "drills · lightning · weak spots · cheat sheets"),
                 ("Final exam", "exam", "%d multiple-choice questions, graded at the end" % len(MC)),
                 ("Profile", "profile", "progress · tips %s · theme · how to play · menu map" % ("on" if tips_on() else "off")),

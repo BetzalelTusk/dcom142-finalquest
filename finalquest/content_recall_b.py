@@ -1,4 +1,4 @@
-"""Typed-command recall questions, part B: Modules 9-10 (post-midterm) plus a PREVIEW of storage (Modules 11-12)."""
+"""Typed-command recall questions, part B: Modules 9-10 (post-midterm) storage is in content_storage.py."""
 from .content_base import R
 
 M9 = "Module 9 slides"
@@ -270,77 +270,3 @@ R("repos", "Install the flatpak application org.gimp.GIMP from the remote flathu
   "flatpak install flathub org.gimp.GIMP",
   "Flatpak pulls applications from repositories called 'remotes' and can be managed per-system or per-user. The slides name flatpak but do not show the command; this is the standard form.",
   M10 + " (Flatpak; notes: 'Install and Run an Application Using flatpak')", "flatpak install + remote + app id")
-
-# ---------------------------------------------------------------- storage (PREVIEW)
-R("storage", "Show all block devices (disks and partitions) in a tree",
-  "lsblk",
-  "lsblk lists block devices and their mount points in a tree layout.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy Standard Storage)", "ls + blk")
-R("storage", "Show the UUID and filesystem type of every block device",
-  "blkid",
-  "blkid prints UUIDs, labels and filesystem types. UUIDs are what you should use in /etc/fstab.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy Standard Storage)", "blk + id")
-R("storage", "List the partition tables of all disks with fdisk",
-  "fdisk -l",
-  "fdisk -l lists partitions without changing anything (needs root). Interactive fdisk /dev/sdb is for MBR, gdisk/parted for GPT.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy Standard Storage)", "fdisk + a listing flag")
-R("storage", "Format the partition /dev/sdb1 as ext4",
-  "mkfs.ext4 /dev/sdb1;;mkfs -t ext4 /dev/sdb1",
-  "mkfs builds a filesystem on a partition. mkfs.ext4 and mkfs -t ext4 are equivalent. Formatting destroys existing data.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy Standard Storage)", "mkfs + type")
-R("storage", "Format the partition /dev/sdb1 as XFS (the Rocky Linux default filesystem)",
-  "mkfs.xfs /dev/sdb1;;mkfs -t xfs /dev/sdb1",
-  "XFS is the default on RHEL/Rocky. Same mkfs pattern, different type.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy Standard Storage)", "mkfs + type")
-R("storage", "Mount /dev/sdb1 on the directory /mnt/data",
-  "mount /dev/sdb1 /mnt/data",
-  "mount {device} {mount point}. The mount point directory must already exist. The mount does not survive a reboot unless it is in /etc/fstab.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Mount Storage)", "device first, then directory.")
-R("storage", "Unmount /mnt/data",
-  "umount /mnt/data;;umount /dev/sdb1",
-  "The command is umount (no 'n'). You cannot unmount a filesystem that is busy (for example if your shell is cd'd into it).",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Mount Storage)", "umount, no n.")
-R("storage", "Type the /etc/fstab line that mounts /dev/sdb1 at /mnt/data as ext4 with default options, no dump and no fsck",
-  "/dev/sdb1 /mnt/data ext4 defaults 0 0",
-  "The six fstab fields are: device, mount point, filesystem type, options, dump flag, fsck pass order. UUID=... is preferred over /dev/sdb1 in real use.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Mount Storage: /etc/fstab)", "Six fields.", loose=True)
-R("storage", "Show disk space usage of mounted filesystems in human-readable units",
-  "df -h",
-  "df reports filesystem usage; -h uses K/M/G. du reports usage of files and directories.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Mount Storage)", "disk free + human")
-R("storage", "Show the total size of /var/log in human-readable form (summary only)",
-  "du -sh /var/log",
-  "du -s summarizes and -h is human-readable. df is per filesystem, du is per directory.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Mount Storage)", "disk usage + summary + human")
-R("storage", "LVM step 1: initialize /dev/sdb1 as a physical volume",
-  "pvcreate /dev/sdb1",
-  "LVM layers: physical volumes (pvcreate), volume groups (vgcreate), logical volumes (lvcreate). Check with pvs, vgs, lvs.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy LVM)", "pv + create")
-R("storage", "LVM step 2: create a volume group named vg0 from /dev/sdb1",
-  "vgcreate vg0 /dev/sdb1",
-  "vgcreate {vg name} {physical volumes}. The group pools the space of its PVs.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy LVM)", "vg + create; name first.")
-R("storage", "LVM step 3: create a 2 GB logical volume named lvdata in vg0",
-  "lvcreate -L 2G -n lvdata vg0;;lvcreate -n lvdata -L 2G vg0;;lvcreate --size 2G --name lvdata vg0",
-  "-L sets the size and -n the name; the volume group comes last. The new device appears as /dev/vg0/lvdata (and /dev/mapper/vg0-lvdata).",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy LVM)", "-L size, -n name, then VG.")
-R("storage", "Grow the logical volume /dev/vg0/lvdata by 1 GB",
-  "lvextend -L +1G /dev/vg0/lvdata",
-  "lvextend -L +1G adds 1 GB. Then grow the filesystem too: resize2fs for ext4, xfs_growfs for XFS.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy LVM)", "A plus sign means add.")
-R("storage", "After extending the LV, grow the ext4 filesystem on /dev/vg0/lvdata to fill it",
-  "resize2fs /dev/vg0/lvdata",
-  "resize2fs grows (or shrinks) ext2/3/4. For XFS use xfs_growfs on the mount point; XFS can only grow.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Deploy LVM)", "resize + 2 + fs")
-R("storage", "Prepare /dev/sdc1 as swap space",
-  "mkswap /dev/sdc1",
-  "mkswap writes the swap signature; then swapon enables it and an /etc/fstab line with type swap makes it permanent.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Other Storage Options: swap)", "mk + swap")
-R("storage", "Enable the swap partition /dev/sdc1",
-  "swapon /dev/sdc1",
-  "swapon activates swap, swapoff deactivates it. swapon --show lists active swap.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Other Storage Options: swap)", "swap + on")
-R("storage", "Create RAID 1 array /dev/md0 from /dev/sdb and /dev/sdc with mdadm",
-  "mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sdb /dev/sdc;;mdadm -C /dev/md0 -l 1 -n 2 /dev/sdb /dev/sdc;;mdadm --create /dev/md0 --level 1 --raid-devices 2 /dev/sdb /dev/sdc",
-  "RAID 1 mirrors two disks. mdadm --create names the array, --level picks the RAID level and --raid-devices the count. Check with cat /proc/mdstat.",
-  PV + "CompTIA Linux+ XK0-006 Module 7 (Other Storage Options: RAID)", "--create, --level, --raid-devices")

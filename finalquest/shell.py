@@ -13,11 +13,20 @@ HELP = {}
 PENDING_NOTES = []   # teaching notes raised by the simulator; the game shows them only as tips, on request
 
 
+WARNINGS = []        # real mistakes (e.g. reversed ln arguments); the game always shows these, even with tips off
+
+
 def note(msg):
     """Queue a teaching note instead of printing it. Returns '' so callers can do ctx.e(note(...))."""
     if msg not in PENDING_NOTES:
         PENDING_NOTES.append(msg)
     return ""
+
+
+def warn(msg):
+    """Queue a warning the game shows right away (tips on or off)."""
+    if msg not in WARNINGS:
+        WARNINGS.append(msg)
 
 
 def cmd(*names, help=None):
@@ -1057,14 +1066,22 @@ def c_ln(ctx):
     fs = ctx.fs
     if fs.isdir(link):
         link = link.rstrip("/") + "/" + posixpath.basename(target.rstrip("/"))
+    flag = "-s " if "s" in opts else ""
+    order = ("ln %stakes the EXISTING file first, then the NEW link's name:  ln %sEXISTING NEW_NAME.  " % (flag, flag))
+    # a symlink's target is resolved from the link's own directory
+    t_abs = target if target.startswith("/") else posixpath.join(posixpath.dirname(fs.abspath(link)), target)
+    target_there = fs.exists(t_abs if "s" in opts else target)
+    link_there = fs.exists(link, follow=False)
     try:
-        if "f" in opts and fs.exists(link, follow=False):
+        if "f" in opts and link_there:
             fs.unlink(link, ctx.user)
         if "s" in opts:
             fs.symlink(target, link, ctx.user)
         else:
             if fs.lookup(target) is None:
                 ctx.err("failed to access '%s': No such file or directory" % target)
+                if link_there:
+                    warn(order + "'%s' doesn't exist yet but '%s' does, so the two are probably swapped. Try:  ln %s %s" % (target, args[1], args[1], target))
                 return 1
             fs.link(target, link, ctx.user)
     except FSError as ex:
@@ -1072,7 +1089,16 @@ def c_ln(ctx):
             ctx.err("%s: %s" % (target, ex.msg))
         else:
             ctx.err("failed to create %s link '%s': %s" % ("symbolic" if "s" in opts else "hard", link, ex.msg))
+            if "exists" in ex.msg:
+                if not target_there:
+                    warn(order + "'%s' already exists and '%s' doesn't, so the two are probably swapped. Try:  ln %s%s %s" % (link, target, flag, args[1], target))
+                else:
+                    warn("'%s' is already there, so ln won't replace it. If it's a leftover (for example made with touch), remove it first: rm %s  "
+                         "(or use ln -f). Remember the order: ln %sEXISTING NEW_NAME." % (link, link, flag))
         return 1
+    if "s" in opts and not target_there:
+        warn("Made the symlink '%s', but it points at '%s', which doesn't exist, so the link is broken (cat on it fails). %s"
+             "If that's not what you meant, rm %s and redo it." % (args[1], target, order, args[1]))
     return 0
 
 
@@ -1464,7 +1490,11 @@ def _sed_script(script):
             continue
         m = re.match(r"^(\d+|/.*?/)?\s*s(.)(.*?)(?<!\\)\2(.*?)(?<!\\)\2([gI]*)$", part)
         if m:
-            cmds.append(("s", m.group(1), m.group(3), m.group(4), m.group(5)))
+            d = m.group(2)
+            pat, rep = m.group(3), m.group(4).replace("\\" + d, d)    # s/\/var\/www/... : \/ means a literal /
+            if d == "/":
+                pat = pat.replace("\\/", "/")
+            cmds.append(("s", m.group(1), pat, rep, m.group(5)))
             continue
         raise ValueError(part)
     return cmds
@@ -1817,4 +1847,4 @@ def c_exit(ctx):
     ctx.w("(this simulator keeps the shell open. Type !quit to leave the mission.)\n")
 
 
-from . import archive, pkg, storage  # noqa: E402,F401  (register more commands)
+from . import archive, pkg, storage, admin  # noqa: E402,F401  (register more commands)

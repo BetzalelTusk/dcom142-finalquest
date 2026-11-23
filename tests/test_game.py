@@ -110,14 +110,56 @@ keys = ["5", "4", "enter", "1", "enter", "5", "enter", "2", "3", "esc",
         "4", "5", "esc", "2", "1", "esc", "esc", "m", "<idle>", "right", "q"]
 r, o, e = drive(game.main_menu, *keys)
 expect("main menu tour", e is None and "HOW TO PLAY" in o and "PROGRESS" in o and o.count("MENU MAP") >= 2 and "Tips: ON" in o and "Theme: Matrix" in o
-       and "Paths" in o and "Nothing here yet" in o and "[ ] Include Storage" in o and "LEVEL 1" in o and "did you know?" in o and "logout" in o, o)
+       and "Paths" in o and "Nothing here yet" in o and "[ ] Include Module 12 PREVIEW" in o and "LEVEL 1" in o and "did you know?" in o and "logout" in o, o)
 tips_seen = set(l.split("did you know? ")[1].split("   (")[0] for l in o.splitlines() if "did you know? " in l)
 expect("tooltip cycles through features (idle + →)", len(tips_seen) >= 3, " | ".join(tips_seen))
 ui.set_theme("rocky"); game.sv().d["theme"] = "rocky"; game.sv().d["tips"] = False
 
-# 10. campaign level 7 cheat sheet via number key
-r, o, e = drive(game.main_menu, "2", "7", "6", "enter", "esc", "esc", "q")
-expect("campaign level 7 cheat sheet", e is None and "Storage" in o and "lvcreate" in o, o)
+# 9b. interactive fdisk and parted, answering each prompt the way a student types it
+def answers(cmds):
+    ks = []
+    for c in cmds:
+        ks += ["enter"] if c == "" else [c, "enter"]
+    return ks
+m = [x for x in M.MISSIONS if x["id"] == "fdisk-drill"][0]
+r, o, e = drive(game.play_mission, *answers(["sudo fdisk /dev/sdb", "m", "n", "e", "", "", "", "n", "l", "", "+2G", "n", "l", "", "", "p", "w",
+                                             "lsblk", "sudo partprobe", "sudo mkfs.ext4 /dev/sdb5", "sudo mkswap /dev/sdb6", "sudo swapon /dev/sdb6"]), m=m)
+expect("fdisk drill typed interactively", r == "won" and "Command (m for help)" in o and "Device or resource busy" in o and "MISSION COMPLETE" in o, o)
+m = [x for x in M.MISSIONS if x["id"] == "new-disk"][0]
+r, o, e = drive(game.play_mission, *answers(["sudo parted /dev/sdb", "mklabel gpt", "mkpart", "primary", "xfs", "1MiB", "100%", "print", "quit",
+                                             "sudo mkfs.xfs /dev/sdb1", "sudo mkdir /opt/downloads", "sudo mount /dev/sdb1 /opt/downloads", "touch /opt/downloads/test.txt",
+                                             "sudo chown rocky:rocky /opt/downloads", "touch /opt/downloads/test.txt",
+                                             "echo '/dev/sdb1 /opt/downloads xfs defaults 0 0' | sudo tee -a /etc/fstab", "sudo reboot"]), m=m)
+expect("new disk via interactive parted", r == "won" and "(parted)" in o and "Permission denied" in o and "Mounted /opt/downloads" in o, o)
+m = [x for x in M.MISSIONS if x["id"] == "boot-breaker"][0]
+r, o, e = drive(game.play_mission, *(answers(["sudo reboot"]) + ["esc"] + answers(["exit"])), m=m)
+expect("boot breaker shows emergency mode", r == "quit" and "emergency mode" in o and "can't find UUID=" in o, o)
+
+# 9c. a real student session in Link Lab (reversed ln, touch-then-link, deleting the original): warnings show even with tips OFF
+game.sv().d["tips"] = False
+m = [x for x in M.MISSIONS if x["id"] == "link-lab"][0]
+real = ["ln ~/dir1/file2-hl file2", "sudo !!", "touch file2", "cd dir1", "sudo ln ~/dir1/file2-hl file2", "touch file2-hl",
+        "sudo ln ~/dir1/file2-hl file2", "sudo rm file2", "sudo ln ~/dir1/file2-hl file2", "touch file3-sl", "sudo ln -s ~/dir1/file3-hl file3",
+        "rm file3", "sudo ln -s ~/dir1/file3-hl file3", "rm file2 file3"]
+r, o, e = drive(game.play_mission, *(lines_for(real) + lines_for(["exit"])), m=m)
+flat = " ".join(o.replace("│", " ").replace("|", " ").split())
+expect("link lab: reversed ln is called out", "probably swapped" in flat and "ln file2 /home/rocky/dir1/file2-hl" in flat, o)
+expect("link lab: touch-made file2-hl is called out", "separate file, not a hard link" in flat, o)
+expect("link lab: dead end says !reset", "can't be completed any more" in flat and "Type !reset" in flat, o)
+expect("link lab: plain-file file3-sl is called out", "ordinary file" in flat, o)
+expect("link lab: tips stay hidden", "─ tip" not in o, o)
+r, o, e = drive(game.play_mission, *(lines_for(real[:9] + ["!reset", "cd dir1", "ln file2 file2-hl", "ln -s file3 file3-sl", "rm file2 file3"])), m=m)
+expect("link lab: !reset then the right commands wins", r == "won", o)
+r, o, e = drive(game.play_mission, *lines_for(m["solution"]), m=m)
+expect("link lab: clean solution shows no warnings", r == "won" and "heads up" not in o, o)
+
+# 10. campaign level 8 cheat sheet via number key (4 missions, boss, drill, concepts -> cheat sheet is item 8)
+r, o, e = drive(game.main_menu, "2", "8", "8", "enter", "esc", "esc", "q")
+expect("campaign level 8 cheat sheet", e is None and "Mount Mountain" in o and "mdadm" in o and "quotacheck" in o, o)
+# 10b. level 7 lists all six Module 11 missions and no PREVIEW tag
+r, o, e = drive(game.main_menu, "2", "7", "esc", "esc", "q")
+expect("campaign level 7 screen", e is None and all(t in o for t in ("Disk Detective", "fdisk Drill", "New Disk Day", "Filesystem Fixer", "Swap Shop", "LVM Builder"))
+       and "Module 11 · Lessons 7.1-7.2" in o, o)
 
 # 11. the real playtest that got stuck: building /projects at the root instead of ~/projects
 m = M.MISSIONS[0]

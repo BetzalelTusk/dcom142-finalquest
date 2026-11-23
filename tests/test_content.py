@@ -1,6 +1,6 @@
 import sys, os, collections
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from finalquest import content_recall_a, content_recall_b, content_mc_a, content_mc_b
+from finalquest import content_recall_a, content_recall_b, content_mc_a, content_mc_b, content_storage
 from finalquest.content_base import RECALL, MC, TOPICS
 from finalquest.grading import check, normalize
 bad = 0

@@ -38,6 +38,20 @@ class Comp:
         return "%s:%s" % (self.algo, digest_of(self.inner))
 
 
+class Blob:
+    """Big binary content stored by size only (dd from /dev/zero, swap files, video files)."""
+
+    def __init__(self, nbytes, what="zero"):
+        self.nbytes = int(nbytes)
+        self.what = what
+
+    def size(self):
+        return self.nbytes
+
+    def digest(self):
+        return "blob:%s:%d" % (self.what, self.nbytes)
+
+
 def inner_size(d):
     return d.size() if hasattr(d, "size") else len(d.encode())
 

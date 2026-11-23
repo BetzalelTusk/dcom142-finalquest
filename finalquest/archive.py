@@ -591,7 +591,14 @@ def c_dd(ctx):
     except ValueError:
         ctx.e("dd: invalid number\n")
         return 1
-    if "if" in ops:
+    if ops.get("if") in ("/dev/zero", "/dev/urandom"):
+        if count is None:
+            ctx.e("dd: (simulator) %s never ends: give count=N (e.g. bs=1M count=1024 for 1 GiB)\n" % ops["if"])
+            return 1
+        from .vfs import Blob
+        node = None
+        data = Blob(bs * count, "zero" if ops["if"] == "/dev/zero" else "random")
+    elif "if" in ops:
         try:
             node = fs.lookup(ops["if"])
             if node is None:
